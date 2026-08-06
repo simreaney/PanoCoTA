@@ -170,6 +170,17 @@ function resolveSaveTourName() {
   return selected;
 }
 
+function resolveWriteTourName() {
+  const saveName = resolveSaveTourName();
+  if (saveName) {
+    return saveName;
+  }
+  if (activeTourName) {
+    return activeTourName;
+  }
+  return currentAssetTour || "tour";
+}
+
 function updateSaveTourUI() {
   const isCreateNew = (el.saveTourSelect?.value || "") === CREATE_NEW_TOUR_VALUE;
   el.saveTourNewNameWrap.classList.toggle("is-hidden", !isCreateNew);
@@ -216,10 +227,12 @@ async function refreshTourList(preferredLoadName = "", preferredSaveName = "") {
   refreshSaveTourSelect(preferredSaveName);
 }
 
-async function refreshImageList(preferredImage = "", preferredHotspotImage = "") {
+async function refreshImageList(preferredImage = "", preferredHotspotImage = "", tourName = "") {
+  const targetTour = (tourName || resolveWriteTourName()).trim();
+  const query = targetTour ? `?tour=${encodeURIComponent(targetTour)}` : "";
   const [panoramaResponse, image2dResponse] = await Promise.all([
-    fetch("/api/images_360"),
-    fetch("/api/images_2d"),
+    fetch(`/api/images_360${query}`),
+    fetch(`/api/images_2d${query}`),
   ]);
   const panoramaBody = await panoramaResponse.json();
   const image2dBody = await image2dResponse.json();
@@ -268,8 +281,10 @@ function setSelectOptions(selectEl, options, includeBlank = false, blankLabel = 
   }
 }
 
-async function fetchCsvFiles() {
-  const response = await fetch("/api/csvs");
+async function fetchCsvFiles(tourName = "") {
+  const targetTour = (tourName || resolveWriteTourName()).trim();
+  const query = targetTour ? `?tour=${encodeURIComponent(targetTour)}` : "";
+  const response = await fetch(`/api/csvs${query}`);
   const body = await response.json();
   if (!response.ok) {
     throw new Error(body.error || "Failed to fetch CSV list.");
@@ -278,12 +293,16 @@ async function fetchCsvFiles() {
   return Array.isArray(body.files) ? body.files : [];
 }
 
-async function fetchCsvColumns(csvName) {
+async function fetchCsvColumns(csvName, tourName = "") {
   if (!csvName) {
     return [];
   }
 
   const query = new URLSearchParams({ csv: csvName });
+  const targetTour = (tourName || resolveWriteTourName()).trim();
+  if (targetTour) {
+    query.set("tour", targetTour);
+  }
   const response = await fetch(`/api/csv_columns?${query.toString()}`);
   const body = await response.json();
   if (!response.ok) {
@@ -360,16 +379,17 @@ function renderSubplotConfigRows(preferredConfigs = []) {
   updateInvertToggleVisibility();
 }
 
-async function refreshColumnSelects(preferredX = "", preferredConfigs = []) {
+async function refreshColumnSelects(preferredX = "", preferredConfigs = [], tourName = "") {
   const selectedCsv = el.hotspotCsv.value;
-  csvColumns = await fetchCsvColumns(selectedCsv);
+  csvColumns = await fetchCsvColumns(selectedCsv, tourName);
 
   setSelectOptions(el.hotspotX, csvColumns, true, "(auto index)", preferredX);
   renderSubplotConfigRows(preferredConfigs);
 }
 
-async function refreshCsvSelects(preferredCsv = "", preferredX = "", preferredConfigs = []) {
-  csvFiles = await fetchCsvFiles();
+async function refreshCsvSelects(preferredCsv = "", preferredX = "", preferredConfigs = [], tourName = "") {
+  const targetTour = (tourName || resolveWriteTourName()).trim();
+  csvFiles = await fetchCsvFiles(targetTour);
   setSelectOptions(el.hotspotCsv, csvFiles, true, "(upload new csv)", preferredCsv);
 
   if (csvFiles.length === 0) {
@@ -379,7 +399,7 @@ async function refreshCsvSelects(preferredCsv = "", preferredX = "", preferredCo
     return;
   }
 
-  await refreshColumnSelects(preferredX, preferredConfigs);
+  await refreshColumnSelects(preferredX, preferredConfigs, targetTour);
 }
 
 async function loadTour() {
@@ -503,6 +523,10 @@ function createHotspotDom(hotSpotDiv, args) {
           csv: args.graph.csv || "",
           animate: String(asTruthy(args.graph.animate)),
         });
+        const graphTour = resolveWriteTourName();
+        if (graphTour) {
+          query.set("tour", graphTour);
+        }
         query.set("maxPoints", "2200");
         const effectiveSpeed = getGlobalAnimationSpeed();
         query.set("animationSpeed", String(effectiveSpeed));
@@ -1502,7 +1526,18 @@ function setupEvents() {
     }
   });
 
-  el.saveTourSelect.addEventListener("change", updateSaveTourUI);
+  el.saveTourSelect.addEventListener("change", async () => {
+    updateSaveTourUI();
+    const targetTour = resolveWriteTourName();
+    try {
+      await refreshImageList("", "", targetTour);
+      await refreshCsvSelects("", "", [], targetTour);
+      updateSceneUploadUI();
+      updateHotspotModeUI();
+    } catch (_error) {
+      // Keep UI usable even if tour-scoped list refresh fails.
+    }
+  });
 
   el.hotspotKind.addEventListener("change", updateHotspotModeUI);
   el.globalAnimationSpeed.addEventListener("change", () => {
@@ -1639,6 +1674,7 @@ function setupEvents() {
 
     const data = new FormData();
     data.append("image", file);
+    data.append("tour", resolveWriteTourName());
 
     const response = await fetch("/api/upload_360", {
       method: "POST",
@@ -1653,7 +1689,7 @@ function setupEvents() {
 
     el.sceneImageResult.textContent = `Uploaded: ${body.filename}`;
     try {
-      await refreshImageList(body.filename);
+      await refreshImageList(body.filename, "", body.tour || resolveWriteTourName());
       updateSceneUploadUI();
     } catch (_error) {
       setStatus("Image uploaded, but failed to refresh image list.", true);
@@ -1670,6 +1706,7 @@ function setupEvents() {
 
     const data = new FormData();
     data.append("image", file);
+    data.append("tour", resolveWriteTourName());
 
     const response = await fetch("/api/upload_2d", {
       method: "POST",
@@ -1684,7 +1721,7 @@ function setupEvents() {
 
     el.hotspotImageResult.textContent = `Uploaded: ${body.filename}`;
     try {
-      await refreshImageList("", body.filename);
+      await refreshImageList("", body.filename, body.tour || resolveWriteTourName());
       updateHotspotModeUI();
     } catch (_error) {
       setStatus("Image uploaded, but failed to refresh image list.", true);
@@ -1863,6 +1900,7 @@ function setupEvents() {
 
     const data = new FormData();
     data.append("datafile", file);
+    data.append("tour", resolveWriteTourName());
 
     const response = await fetch("/api/upload_csv", {
       method: "POST",
@@ -1877,7 +1915,7 @@ function setupEvents() {
 
     el.csvUploadResult.textContent = `Uploaded: ${body.filename}`;
     try {
-      await refreshCsvSelects(body.filename);
+      await refreshCsvSelects(body.filename, "", [], body.tour || resolveWriteTourName());
       updateHotspotModeUI();
     } catch (_error) {
       setStatus("CSV uploaded, but failed to refresh CSV dropdowns.", true);

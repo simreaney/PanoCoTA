@@ -70,6 +70,13 @@ def register_routes(app: Flask) -> None:
             write_graph_cache_signature_for_tour(normalized, current_signature)
         return removed
 
+    def request_tour_name(default: str | None = None) -> str:
+        """Resolve a requested tour name from query/form with fallback to active tour."""
+        requested = (request.args.get("tour") or request.form.get("tour") or "").strip()
+        if requested:
+            return normalize_tour_name(requested)
+        return normalize_tour_name(default or current_tour_name)
+
     @app.get("/")
     def index():
         """Render the single-page editor UI."""
@@ -272,8 +279,8 @@ def register_routes(app: Flask) -> None:
             }
         )
 
-    def _upload_image_to_dir(target_dir, path_prefix: str):
-        """Upload image file to the target directory and return response payload."""
+    def _upload_image_to_dir(target_dir_resolver, path_prefix: str):
+        """Upload image file into the requested tour directory and return response payload."""
         file = request.files.get("image")
         if file is None or file.filename is None or file.filename.strip() == "":
             return jsonify({"error": "No file uploaded."}), 400
@@ -282,6 +289,8 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "Only jpg, jpeg, png, webp are allowed."}), 400
 
         filename = sanitize_filename(file.filename)
+        target_tour_name = request_tour_name()
+        target_dir = target_dir_resolver(target_tour_name)
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / filename
         write_uploaded_file(file, target_path)
@@ -289,48 +298,51 @@ def register_routes(app: Flask) -> None:
         return jsonify(
             {
                 "ok": True,
-                "path": f"/{path_prefix}/{current_tour_name}/{filename}",
+                "path": f"/{path_prefix}/{target_tour_name}/{filename}",
                 "filename": filename,
-                "tour": current_tour_name,
+                "tour": target_tour_name,
             }
         )
 
     @app.post("/api/upload_360")
     def upload_panorama_image():
         """Upload and store 360 panorama image under per-tour 360 directory."""
-        return _upload_image_to_dir(panorama_dir_for_tour(current_tour_name), "images360")
+        return _upload_image_to_dir(panorama_dir_for_tour, "images360")
 
     @app.post("/api/upload_2d")
     def upload_2d_image():
         """Upload and store 2D image under per-tour 2D directory."""
-        return _upload_image_to_dir(image_2d_dir_for_tour(current_tour_name), "images2d")
+        return _upload_image_to_dir(image_2d_dir_for_tour, "images2d")
 
     @app.post("/api/upload")
     def upload_image_legacy():
         """Legacy upload endpoint retained for backward compatibility (maps to 360)."""
-        return _upload_image_to_dir(panorama_dir_for_tour(current_tour_name), "images360")
+        return _upload_image_to_dir(panorama_dir_for_tour, "images360")
 
     @app.get("/api/images_360")
     def list_panorama_images():
-        """Return available 360 panorama filenames for the current tour."""
-        names = list_panorama_images_for_tour(current_tour_name)
-        return jsonify({"ok": True, "images": names, "tour": current_tour_name})
+        """Return available 360 panorama filenames for the requested tour."""
+        tour_name = request_tour_name()
+        names = list_panorama_images_for_tour(tour_name)
+        return jsonify({"ok": True, "images": names, "tour": tour_name})
 
     @app.get("/api/images_2d")
     def list_2d_images():
-        """Return available 2D image filenames for the current tour."""
-        names = list_2d_images_for_tour(current_tour_name)
-        return jsonify({"ok": True, "images": names, "tour": current_tour_name})
+        """Return available 2D image filenames for the requested tour."""
+        tour_name = request_tour_name()
+        names = list_2d_images_for_tour(tour_name)
+        return jsonify({"ok": True, "images": names, "tour": tour_name})
 
     @app.get("/api/images")
     def list_images_legacy():
         """Legacy image listing endpoint retained for compatibility (returns 360 list)."""
-        names = list_panorama_images_for_tour(current_tour_name)
-        return jsonify({"ok": True, "images": names, "tour": current_tour_name})
+        tour_name = request_tour_name()
+        names = list_panorama_images_for_tour(tour_name)
+        return jsonify({"ok": True, "images": names, "tour": tour_name})
 
     @app.post("/api/upload_csv")
     def upload_csv():
-        """Upload and store CSV data file for graph hotspots."""
+        """Upload and store CSV data file under the requested tour directory."""
         file = request.files.get("datafile")
         if file is None or file.filename is None or file.filename.strip() == "":
             return jsonify({"error": "No CSV file uploaded."}), 400
@@ -339,7 +351,8 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "Only .csv files are allowed."}), 400
 
         filename = sanitize_filename(file.filename)
-        data_dir = data_dir_for_tour(current_tour_name)
+        tour_name = request_tour_name()
+        data_dir = data_dir_for_tour(tour_name)
         data_dir.mkdir(parents=True, exist_ok=True)
         target_path = data_dir / filename
         write_uploaded_file(file, target_path)
@@ -348,27 +361,29 @@ def register_routes(app: Flask) -> None:
             {
                 "ok": True,
                 "filename": filename,
-                "path": f"/static/data/{current_tour_name}/{filename}",
-                "tour": current_tour_name,
+                "path": f"/static/data/{tour_name}/{filename}",
+                "tour": tour_name,
             }
         )
 
     @app.get("/api/csvs")
     def list_csv_files():
-        """Return available CSV filenames in the data directory."""
-        names = list_csvs_for_tour(current_tour_name)
-        return jsonify({"ok": True, "files": names, "tour": current_tour_name})
+        """Return available CSV filenames in the requested tour data directory."""
+        tour_name = request_tour_name()
+        names = list_csvs_for_tour(tour_name)
+        return jsonify({"ok": True, "files": names, "tour": tour_name})
 
     @app.get("/api/csv_columns")
     def get_csv_columns():
-        """Return header columns for a requested CSV file."""
+        """Return header columns for a requested CSV file in the requested tour."""
         csv_name = sanitize_filename((request.args.get("csv") or "").strip())
         if not csv_name:
             return jsonify({"error": "csv query parameter is required."}), 400
         if not is_allowed_data_file(csv_name):
             return jsonify({"error": "csv must reference a .csv file."}), 400
 
-        csv_path = data_dir_for_tour(current_tour_name) / csv_name
+        tour_name = request_tour_name()
+        csv_path = data_dir_for_tour(tour_name) / csv_name
         if not csv_path.exists():
             # Backward-compatibility for legacy global CSV files.
             csv_path = DATA_DIR / csv_name
@@ -379,11 +394,12 @@ def register_routes(app: Flask) -> None:
             reader = csv.reader(handle)
             headers = next(reader, [])
 
-        return jsonify({"ok": True, "csv": csv_name, "columns": headers, "tour": current_tour_name})
+        return jsonify({"ok": True, "csv": csv_name, "columns": headers, "tour": tour_name})
 
     @app.get("/api/graph")
     def get_graph():
         """Generate and return URL for graph image derived from CSV query params."""
+        graph_tour_name = request_tour_name()
         csv_name = (request.args.get("csv") or "").strip()
         x_col = (request.args.get("x") or "").strip()
         y_cols = [value.strip() for value in request.args.getlist("y") if value and value.strip()]
@@ -403,7 +419,7 @@ def register_routes(app: Flask) -> None:
         size = (request.args.get("size") or "m").strip().lower()
         animate = (request.args.get("animate") or "false").lower() in {"1", "true", "yes"}
 
-        refresh_graph_cache_for_signature(current_tour_name)
+        refresh_graph_cache_for_signature(graph_tour_name)
 
         try:
             animation_speed = float(animation_speed_raw)
@@ -452,7 +468,7 @@ def register_routes(app: Flask) -> None:
                 animation_speed=animation_speed,
                 renderer=renderer,
                 size=size,
-                tour_name=current_tour_name,
+                tour_name=graph_tour_name,
                 max_points=max_points,
             )
         except ValueError as exc:
@@ -463,9 +479,9 @@ def register_routes(app: Flask) -> None:
         return jsonify(
             {
                 "ok": True,
-                "path": f"/graphs/{current_tour_name}/{graph_result['filename']}",
+                "path": f"/graphs/{graph_tour_name}/{graph_result['filename']}",
                 "animated": animate,
-                "tour": current_tour_name,
+                "tour": graph_tour_name,
                 "sampled": graph_result["sampled"],
                 "originalPoints": graph_result["originalPoints"],
                 "plottedPoints": graph_result["plottedPoints"],

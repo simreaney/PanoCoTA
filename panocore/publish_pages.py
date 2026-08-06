@@ -60,6 +60,7 @@ def _resolve_panorama_source(tour_name: str, scene_panorama: str) -> tuple[Path,
         [
             panorama_dir_for_tour(tour_name) / filename,
             LEGACY_IMAGES_DIR / normalize_tour_name(tour_name) / filename,
+            LEGACY_IMAGES_DIR / filename,
         ]
     )
     if src is None:
