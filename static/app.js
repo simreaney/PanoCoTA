@@ -24,6 +24,69 @@ let currentAssetTour = "tour";
 let activeTourName = "";
 const CREATE_NEW_TOUR_VALUE = "__create_new__";
 let helpWindowRef = null;
+let pendingHotspotPlacement = null;
+let hotspotPanelMode = "none";
+let hotspotMoveMode = false;
+let hotspotDeleteMode = false;
+let dragState = null;
+const HOTSPOT_DRAG_THRESHOLD_PX = 6;
+let hotspotIdCounter = 0;
+let viewerCursorIndicator = null;
+let placementPointerState = null;
+const graphRequestCache = new Map();
+const SUBPLOT_COLOR_OPTIONS = [
+  { value: "red", label: "Red" },
+  { value: "blue", label: "Blue" },
+  { value: "green", label: "Green" },
+  { value: "orange", label: "Orange" },
+  { value: "purple", label: "Purple" },
+  { value: "teal", label: "Teal" },
+  { value: "brown", label: "Brown" },
+  { value: "black", label: "Black" },
+  { value: "gray", label: "Gray" },
+  { value: "pink", label: "Pink" },
+];
+
+function runWhenIdle(task) {
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(() => task(), { timeout: 1200 });
+    return;
+  }
+  window.setTimeout(task, 120);
+}
+
+function asTruthy(value) {
+  if (value === true || value === 1) {
+    return true;
+  }
+  const text = String(value || "").trim().toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "on";
+}
+
+async function requestGraphAsset(queryKey) {
+  if (graphRequestCache.has(queryKey)) {
+    return graphRequestCache.get(queryKey);
+  }
+
+  const requestPromise = (async () => {
+    const response = await fetch(`/api/graph?${queryKey}`);
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.error || "Failed to generate graph.");
+    }
+    return body;
+  })();
+
+  graphRequestCache.set(queryKey, requestPromise);
+  try {
+    const result = await requestPromise;
+    graphRequestCache.set(queryKey, Promise.resolve(result));
+    return result;
+  } catch (error) {
+    graphRequestCache.delete(queryKey);
+    throw error;
+  }
+}
 
 // Cache all frequently used DOM nodes in one place.
 const el = {
@@ -38,10 +101,7 @@ const el = {
   uploadSceneImageButton: document.getElementById("upload-scene-image"),
   sceneImageResult: document.getElementById("scene-image-result"),
   hotspotKind: document.getElementById("hotspot-kind"),
-  hotspotSource: document.getElementById("hotspot-source"),
   hotspotTarget: document.getElementById("hotspot-target"),
-  hotspotPitch: document.getElementById("hotspot-pitch"),
-  hotspotYaw: document.getElementById("hotspot-yaw"),
   hotspotLabel: document.getElementById("hotspot-label"),
   textContentWrap: document.getElementById("text-content-wrap"),
   hotspotFreeText: document.getElementById("hotspot-free-text"),
@@ -57,6 +117,11 @@ const el = {
   hotspotImageUpload: document.getElementById("hotspot-image-upload"),
   uploadHotspotImageButton: document.getElementById("upload-hotspot-image"),
   hotspotImageResult: document.getElementById("hotspot-image-result"),
+  placeHotspotButton: document.getElementById("place-hotspot"),
+  hotspotModeAddButton: document.getElementById("hotspot-mode-add"),
+  hotspotModeMoveButton: document.getElementById("hotspot-mode-move"),
+  hotspotModeDeleteButton: document.getElementById("hotspot-mode-delete"),
+  hotspotAddForm: document.getElementById("hotspot-add-form"),
   targetSceneWrap: document.getElementById("target-scene-wrap"),
   graphCsvWrap: document.getElementById("graph-csv-wrap"),
   graphXWrap: document.getElementById("graph-x-wrap"),
@@ -67,8 +132,6 @@ const el = {
   graphUploadWrap: document.getElementById("graph-upload-wrap"),
   imageFileWrap: document.getElementById("image-file-wrap"),
   imageUploadWrap: document.getElementById("image-upload-wrap"),
-  captureView: document.getElementById("capture-view"),
-  addHotspot: document.getElementById("add-hotspot"),
   saveTour: document.getElementById("save-tour"),
   loadTourButton: document.getElementById("load-tour"),
   closeTourButton: document.getElementById("close-tour"),
@@ -235,10 +298,12 @@ function getSelectedSubplotConfigs() {
     const yNode = row.querySelector(".subplot-y-select");
     const typeNode = row.querySelector(".subplot-type-select");
     const invertNode = row.querySelector(".subplot-invert-check");
+    const colorNode = row.querySelector(".subplot-color-select");
     return {
       y: (yNode?.value || "").trim(),
       type: (typeNode?.value || "line").trim().toLowerCase(),
       invertBar: Boolean(invertNode?.checked),
+      color: (colorNode?.value || "").trim().toLowerCase(),
     };
   });
 }
@@ -252,31 +317,25 @@ function getGlobalAnimationSpeed() {
 }
 
 function updateInvertToggleVisibility() {
-  const rows = Array.from(el.hotspotYSelects.querySelectorAll(".subplot-config-row"));
-  rows.forEach((row) => {
-    const typeNode = row.querySelector(".subplot-type-select");
-    const invertLabel = row.querySelector(".subplot-invert-label");
-    const invertNode = row.querySelector(".subplot-invert-check");
-    const isBar = (typeNode?.value || "line") === "bar";
-    if (invertLabel) {
-      invertLabel.classList.toggle("is-hidden", !isBar);
-    }
-    if (!isBar && invertNode) {
-      invertNode.checked = false;
-    }
-  });
+  return;
 }
 
 function renderSubplotConfigRows(preferredConfigs = []) {
   const requested = Number.parseInt(el.hotspotSubplots.value, 10);
   const subplotCount = Number.isFinite(requested) ? clamp(requested, 1, 3) : 1;
   const html = [];
+  const defaultColors = SUBPLOT_COLOR_OPTIONS.map((item) => item.value);
 
   for (let index = 0; index < subplotCount; index += 1) {
     const preferred = preferredConfigs[index] || {};
     const preferredType = ["line", "scatter", "bar"].includes(preferred.type)
       ? preferred.type
       : "line";
+    const preferredColor = String(preferred.color || defaultColors[index % defaultColors.length]).toLowerCase();
+    const colorOptionsHtml = SUBPLOT_COLOR_OPTIONS.map(
+      (option) =>
+        `<option value="${option.value}" ${preferredColor === option.value ? "selected" : ""}>${option.label}</option>`,
+    ).join("");
     html.push(
       `<div class="subplot-config-row">
         <label class="subplot-y-label">Subplot ${index + 1} Y Column<select class="subplot-y-select" id="hotspot-y-${index}"></select></label>
@@ -285,7 +344,8 @@ function renderSubplotConfigRows(preferredConfigs = []) {
           <option value="scatter" ${preferredType === "scatter" ? "selected" : ""}>Scatter</option>
           <option value="bar" ${preferredType === "bar" ? "selected" : ""}>Bar</option>
         </select></label>
-        <label class="subplot-invert-label"><input class="subplot-invert-check" id="hotspot-invert-${index}" type="checkbox" ${preferred.invertBar ? "checked" : ""} /> Inverted bar</label>
+        <label class="subplot-color-label">Color<select class="subplot-color-select" id="hotspot-color-${index}">${colorOptionsHtml}</select></label>
+        <label class="subplot-invert-label"><input class="subplot-invert-check" id="hotspot-invert-${index}" type="checkbox" ${preferred.invertBar ? "checked" : ""} /> Invert Y axis</label>
       </div>`,
     );
   }
@@ -297,10 +357,6 @@ function renderSubplotConfigRows(preferredConfigs = []) {
     setSelectOptions(selectEl, csvColumns, false, "", preferred);
   });
 
-  const typeSelects = Array.from(el.hotspotYSelects.querySelectorAll(".subplot-type-select"));
-  typeSelects.forEach((selectEl) => {
-    selectEl.addEventListener("change", updateInvertToggleVisibility);
-  });
   updateInvertToggleVisibility();
 }
 
@@ -339,14 +395,21 @@ function clamp(value, min, max) {
 function positionPromptCard(wrap, prompt) {
   const viewportPadding = 8;
   const gap = 34;
+  const isGraphPrompt = prompt.classList.contains("prompt-card--graph");
 
   const wrapRect = wrap.getBoundingClientRect();
   const promptRect = prompt.getBoundingClientRect();
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
+  const viewerRect = document.getElementById("viewer")?.getBoundingClientRect();
 
   let left = gap;
   let top = -14;
+
+  if (isGraphPrompt && viewerRect) {
+    // Keep graph windows centered vertically in the panorama for consistent readability.
+    top = (viewerRect.top + (viewerRect.height / 2)) - wrapRect.top - (promptRect.height / 2);
+  }
 
   if (wrapRect.right + gap + promptRect.width > viewportWidth - viewportPadding) {
     left = -(promptRect.width + gap);
@@ -356,12 +419,16 @@ function positionPromptCard(wrap, prompt) {
   const maxLeft = viewportWidth - viewportPadding - wrapRect.left - promptRect.width;
   left = clamp(left, minLeft, maxLeft);
 
-  const minTop = viewportPadding - wrapRect.top;
-  const maxTop = viewportHeight - viewportPadding - wrapRect.top - promptRect.height;
+  const topMinBoundary = viewerRect ? viewerRect.top + viewportPadding : viewportPadding;
+  const topMaxBoundary = viewerRect
+    ? viewerRect.bottom - viewportPadding
+    : viewportHeight - viewportPadding;
+  const minTop = topMinBoundary - wrapRect.top;
+  const maxTop = topMaxBoundary - wrapRect.top - promptRect.height;
   top = clamp(top, minTop, maxTop);
 
-  prompt.style.left = `${left}px`;
-  prompt.style.top = `${top}px`;
+  prompt.style.left = `${Math.round(left)}px`;
+  prompt.style.top = `${Math.round(top)}px`;
 }
 
 function createHotspotDom(hotSpotDiv, args) {
@@ -375,6 +442,12 @@ function createHotspotDom(hotSpotDiv, args) {
   // Build custom hotspot UI: pulsing dot plus optional animated hover card.
   const wrap = document.createElement("div");
   wrap.className = `hotspot-wrap hotspot-wrap--${kind}`;
+
+  if (args.interactive) {
+    wrap.classList.add("hotspot-wrap--editable");
+    wrap.title = hotspotDeleteMode ? "Click to delete hotspot" : "Left-drag to move hotspot";
+    attachHotspotMoveHandlers(wrap, hotSpotDiv, args.sceneId, args.hotspotIndex);
+  }
 
   const dot = document.createElement("div");
   dot.className = "hotspot-dot";
@@ -412,24 +485,25 @@ function createHotspotDom(hotSpotDiv, args) {
       graphContainer.textContent = "Loading graph...";
       prompt.appendChild(graphContainer);
 
-      let lastQueryKey = "";
-      wrap.addEventListener("mouseenter", async () => {
-        positionPromptCard(wrap, prompt);
-
+      const buildGraphQuery = () => {
         const yColumns = Array.isArray(args.graph.yColumns)
           ? args.graph.yColumns.filter((value) => Boolean(String(value || "").trim()))
           : [args.graph.y].filter((value) => Boolean(String(value || "").trim()));
         const subplotTypes = Array.isArray(args.graph.subplotTypes)
           ? args.graph.subplotTypes.map((value) => String(value || "line").trim().toLowerCase())
           : [];
+        const subplotColors = Array.isArray(args.graph.subplotColors)
+          ? args.graph.subplotColors.map((value) => String(value || "").trim().toLowerCase())
+          : [];
         const invertedBars = Array.isArray(args.graph.invertedBars)
-          ? args.graph.invertedBars.map((value) => value === true || value === "true" || value === "1")
+          ? args.graph.invertedBars.map((value) => asTruthy(value))
           : [];
 
         const query = new URLSearchParams({
           csv: args.graph.csv || "",
-          animate: String(args.graph.animate === true || args.graph.animate === "true"),
+          animate: String(asTruthy(args.graph.animate)),
         });
+        query.set("maxPoints", "2200");
         const effectiveSpeed = getGlobalAnimationSpeed();
         query.set("animationSpeed", String(effectiveSpeed));
         const subplots = Number.parseInt(args.graph.subplots, 10);
@@ -440,6 +514,7 @@ function createHotspotDom(hotSpotDiv, args) {
         });
         for (let idx = 0; idx < subplotCount; idx += 1) {
           query.append("plotType", subplotTypes[idx] || "line");
+          query.append("color", subplotColors[idx] || SUBPLOT_COLOR_OPTIONS[idx % SUBPLOT_COLOR_OPTIONS.length].value);
           query.append("invertBar", invertedBars[idx] ? "true" : "false");
         }
         if (args.graph.x) {
@@ -451,11 +526,20 @@ function createHotspotDom(hotSpotDiv, args) {
         if (args.graph.yUnit) {
           query.set("yUnit", args.graph.yUnit);
         }
-        if (args.graph.renderer) {
-          query.set("renderer", args.graph.renderer);
+        const requestedRenderer = String(args.graph.renderer || "").trim().toLowerCase();
+        if (subplotCount > 1) {
+          query.set("renderer", "matplotlib");
+        } else if (requestedRenderer) {
+          query.set("renderer", requestedRenderer);
         }
+        return query.toString();
+      };
 
-        const queryKey = query.toString();
+      let lastQueryKey = "";
+      wrap.addEventListener("mouseenter", async () => {
+        positionPromptCard(wrap, prompt);
+
+        const queryKey = buildGraphQuery();
         if (queryKey === lastQueryKey && graphContainer.querySelector("img")) {
           return;
         }
@@ -463,26 +547,42 @@ function createHotspotDom(hotSpotDiv, args) {
         graphContainer.textContent = "Loading graph...";
 
         try {
-          const response = await fetch(`/api/graph?${query.toString()}`);
-          const body = await response.json();
-          if (!response.ok) {
-            graphContainer.textContent = body.error || "Failed to generate graph.";
-            return;
-          }
+          const body = await requestGraphAsset(queryKey);
 
           const img = document.createElement("img");
           img.className = "graph-preview";
           img.alt = "Generated timeseries graph";
-          img.src = `${body.path}?t=${Date.now()}`;
+          img.src = body.path;
           img.addEventListener("load", () => {
             positionPromptCard(wrap, prompt);
           });
 
           graphContainer.innerHTML = "";
           graphContainer.appendChild(img);
-        } catch (_error) {
-          graphContainer.textContent = "Graph request failed.";
+          if (body.sampled) {
+            const note = document.createElement("div");
+            note.className = "graph-preview-note";
+            const plotted = Number(body.plottedPoints || 0);
+            const original = Number(body.originalPoints || 0);
+            note.textContent =
+              plotted > 0 && original > 0
+                ? `Preview uses ${plotted} of ${original} points for editor performance. Exported graphics include the full dataset.`
+                : "Preview may be downsampled for editor performance. Exported graphics include the full dataset.";
+            graphContainer.appendChild(note);
+          }
+        } catch (error) {
+          graphContainer.textContent = error?.message || "Graph request failed.";
         }
+      });
+
+      runWhenIdle(() => {
+        const queryKey = buildGraphQuery();
+        if (!queryKey) {
+          return;
+        }
+        requestGraphAsset(queryKey).catch(() => {
+          // Ignore prefetch errors; hover request will show user-facing feedback.
+        });
       });
     } else if (kind === "image" && args.image) {
       prompt.classList.add("prompt-card--image");
@@ -528,12 +628,530 @@ function createHotspotDom(hotSpotDiv, args) {
   hotSpotDiv.appendChild(wrap);
 }
 
+function nextHotspotId() {
+  hotspotIdCounter += 1;
+  return `hotspot-${hotspotIdCounter}`;
+}
+
+function ensureHotspotIds() {
+  let highestId = hotspotIdCounter;
+  Object.values(tour?.scenes || {}).forEach((scene) => {
+    if (!Array.isArray(scene.hotSpots)) {
+      scene.hotSpots = [];
+      return;
+    }
+    scene.hotSpots.forEach((spot) => {
+      const existingId = String(spot.id || "").trim();
+      if (existingId) {
+        const match = /^hotspot-(\d+)$/.exec(existingId);
+        if (match) {
+          highestId = Math.max(highestId, Number.parseInt(match[1], 10));
+        }
+        return;
+      }
+      spot.id = nextHotspotId();
+    });
+  });
+  hotspotIdCounter = Math.max(hotspotIdCounter, highestId);
+}
+
+function findHotspot(sceneId, hotspotIndex) {
+  const scene = tour?.scenes?.[sceneId];
+  if (!scene || !Array.isArray(scene.hotSpots)) {
+    return null;
+  }
+  return scene.hotSpots[hotspotIndex] || null;
+}
+
+function updateHotspotPositionFields(sceneId) {
+  if (el.sceneSelect && sceneId) {
+    el.sceneSelect.value = sceneId;
+  }
+}
+
+function getActiveViewerSceneId() {
+  if (viewer && typeof viewer.getScene === "function") {
+    const activeScene = viewer.getScene();
+    if (activeScene) {
+      return activeScene;
+    }
+  }
+  return el.sceneSelect.value || tour?.meta?.startScene || Object.keys(tour?.scenes || {})[0] || "";
+}
+
+function syncHotspotSourceSelection() {
+  const activeScene = getActiveViewerSceneId();
+  if (activeScene && tour?.scenes?.[activeScene] && el.sceneSelect) {
+    el.sceneSelect.value = activeScene;
+  }
+}
+
+function ensureViewerCursorIndicator() {
+  return viewerCursorIndicator;
+}
+
+function setViewerCursorIndicatorTone(clientX, clientY) {
+  void clientX;
+  void clientY;
+}
+
+function hideViewerCursorIndicator() {
+  return;
+}
+
+function updateViewerCursorIndicator(event) {
+  void event;
+}
+
+function syncHotspotInViewer(sceneId, hotspotIndex) {
+  if (!viewer || viewer.getScene() !== sceneId) {
+    return false;
+  }
+
+  const spot = findHotspot(sceneId, hotspotIndex);
+  if (!spot?.id) {
+    return false;
+  }
+
+  try {
+    viewer.removeHotSpot(spot.id, sceneId);
+  } catch (_error) {
+    // Ignore missing hotspot; addHotSpot below is authoritative.
+  }
+
+  try {
+    viewer.addHotSpot(toPannellumHotspot({ ...spot, sceneId, hotspotIndex }), sceneId);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function renderViewerPreservingView() {
+  if (!viewer) {
+    renderViewer();
+    return;
+  }
+
+  const activeScene = viewer.getScene();
+  const pitch = viewer.getPitch();
+  const yaw = viewer.getYaw();
+  const hfov = viewer.getHfov();
+  renderViewer(activeScene || null);
+  if (viewer && activeScene) {
+    viewer.lookAt(pitch, yaw, hfov, false);
+  }
+}
+
+function refreshHotspotInteractivityInViewer() {
+  const sceneId = getActiveViewerSceneId();
+  if (!sceneId || !viewer || viewer.getScene() !== sceneId) {
+    renderViewerPreservingView();
+    return;
+  }
+
+  const scene = tour?.scenes?.[sceneId];
+  if (!scene || !Array.isArray(scene.hotSpots)) {
+    return;
+  }
+
+  scene.hotSpots.forEach((_spot, hotspotIndex) => {
+    syncHotspotInViewer(sceneId, hotspotIndex);
+  });
+}
+
+function stopViewerDragGesture() {
+  if (!viewer) {
+    return;
+  }
+
+  if (typeof viewer.stopMovement === "function") {
+    viewer.stopMovement();
+  }
+
+  // Re-apply the current camera state to flush any pending drag momentum.
+  if (
+    typeof viewer.getPitch === "function" &&
+    typeof viewer.getYaw === "function" &&
+    typeof viewer.getHfov === "function" &&
+    typeof viewer.lookAt === "function"
+  ) {
+    viewer.lookAt(viewer.getPitch(), viewer.getYaw(), viewer.getHfov(), false);
+  }
+}
+
+function updateHotspotModeButtons() {
+  const isAddMode = hotspotPanelMode === "add";
+  const isMoveMode = hotspotPanelMode === "move";
+  const isDeleteMode = hotspotPanelMode === "delete";
+
+  if (el.hotspotModeAddButton) {
+    el.hotspotModeAddButton.classList.toggle("is-active", isAddMode);
+  }
+  if (el.hotspotModeMoveButton) {
+    el.hotspotModeMoveButton.classList.toggle("is-active", isMoveMode);
+  }
+  if (el.hotspotModeDeleteButton) {
+    el.hotspotModeDeleteButton.classList.toggle("is-active", isDeleteMode);
+  }
+  if (el.hotspotAddForm) {
+    el.hotspotAddForm.classList.toggle("is-hidden", !isAddMode);
+  }
+  if (el.placeHotspotButton) {
+    const placing = Boolean(pendingHotspotPlacement);
+    el.placeHotspotButton.textContent = placing ? "Cancel Viewer Placement" : "Place Hotspot In Viewer";
+    el.placeHotspotButton.classList.toggle("is-active", placing);
+  }
+}
+
+function cancelHotspotPlacement() {
+  pendingHotspotPlacement = null;
+  document.body.classList.remove("is-placing-hotspot");
+  hideViewerCursorIndicator();
+  updateHotspotModeButtons();
+}
+
+function beginHotspotPlacement(source) {
+  pendingHotspotPlacement = { source };
+  document.body.classList.add("is-placing-hotspot");
+  updateHotspotModeButtons();
+}
+
+function setHotspotMoveMode(enabled) {
+  hotspotMoveMode = Boolean(enabled);
+  if (!hotspotMoveMode) {
+    finishHotspotMove("");
+  }
+  document.body.classList.toggle("is-moving-hotspots", hotspotMoveMode);
+  updateHotspotModeButtons();
+  refreshHotspotInteractivityInViewer();
+}
+
+function setHotspotDeleteMode(enabled) {
+  hotspotDeleteMode = Boolean(enabled);
+  document.body.classList.toggle("is-deleting-hotspots", hotspotDeleteMode);
+  updateHotspotModeButtons();
+  refreshHotspotInteractivityInViewer();
+}
+
+function setHotspotPanelMode(mode) {
+  const normalized = ["add", "move", "delete", "none"].includes(mode) ? mode : "none";
+  hotspotPanelMode = normalized;
+
+  if (normalized !== "add" && pendingHotspotPlacement) {
+    cancelHotspotPlacement();
+  }
+
+  if (normalized === "move") {
+    setHotspotDeleteMode(false);
+    setHotspotMoveMode(true);
+  } else if (normalized === "delete") {
+    setHotspotMoveMode(false);
+    setHotspotDeleteMode(true);
+  } else {
+    setHotspotMoveMode(false);
+    setHotspotDeleteMode(false);
+  }
+
+  updateHotspotModeButtons();
+}
+
+function buildHotspotEntry(source, pitch, yaw) {
+  const kind = el.hotspotKind.value;
+  const target = el.hotspotTarget.value;
+  const text =
+    el.hotspotLabel.value.trim() ||
+    (kind === "graph"
+      ? "View graphed data"
+      : kind === "image"
+        ? "View image"
+        : kind === "text"
+          ? "View text"
+          : `Go to ${target}`);
+
+  if (!tour.scenes[source]) {
+    throw new Error("Source scene must exist.");
+  }
+
+  if (Number.isNaN(pitch) || Number.isNaN(yaw)) {
+    throw new Error("Pitch and yaw must be numeric.");
+  }
+
+  if (kind === "graph") {
+    const csv = el.hotspotCsv.value.trim();
+    const x = el.hotspotX.value.trim();
+    const subplots = Number.parseInt(el.hotspotSubplots.value, 10);
+    const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 3) : 1;
+    const subplotConfigs = getSelectedSubplotConfigs().slice(0, subplotCount);
+    const yColumns = subplotConfigs.map((item) => item.y).filter((value) => Boolean(value));
+    const subplotTypes = subplotConfigs.map((item) => {
+      const normalized = String(item.type || "line").toLowerCase();
+      return ["line", "scatter", "bar"].includes(normalized) ? normalized : "line";
+    });
+    const subplotColors = subplotConfigs.map((item, index) => {
+      const candidate = String(item.color || "").toLowerCase();
+      if (SUBPLOT_COLOR_OPTIONS.some((option) => option.value === candidate)) {
+        return candidate;
+      }
+      return SUBPLOT_COLOR_OPTIONS[index % SUBPLOT_COLOR_OPTIONS.length].value;
+    });
+    const invertedBars = subplotConfigs.map((item) => Boolean(item.invertBar));
+    const animate = el.hotspotAnimate.value === "true";
+    const animationSpeed = getGlobalAnimationSpeed();
+
+    if (!csv || yColumns.length !== subplotCount || subplotTypes.length !== subplotCount) {
+      throw new Error("Graph hotspots require CSV plus one Y column per subplot.");
+    }
+
+    return {
+      spot: {
+        kind: "graph",
+        pitch,
+        yaw,
+        text,
+        prompt: text,
+        graph: {
+          csv,
+          x,
+          y: yColumns[0],
+          yColumns,
+          subplots: subplotCount,
+          subplotTypes,
+          subplotColors,
+          invertedBars,
+          animate,
+          animationSpeed,
+          size: "m",
+        },
+      },
+      message: `Added graph hotspot in '${source}'.`,
+      clear: "csv",
+    };
+  }
+
+  if (kind === "image") {
+    const fileName = el.hotspotImageFile.value.trim();
+    const caption = el.hotspotImageCaption.value.trim();
+    if (!fileName) {
+      throw new Error("Image hotspots require an image file.");
+    }
+
+    return {
+      spot: {
+        kind: "image",
+        pitch,
+        yaw,
+        text,
+        prompt: text,
+        image: {
+          file: fileName,
+          path: `/images2d/${currentAssetTour}/${fileName}`,
+          caption,
+        },
+      },
+      message: `Added image hotspot in '${source}'.`,
+      clear: "image",
+    };
+  }
+
+  if (kind === "text") {
+    const freeText = el.hotspotFreeText.value.trim();
+    if (!freeText) {
+      throw new Error("Free text hotspots require text content.");
+    }
+
+    return {
+      spot: {
+        kind: "text",
+        pitch,
+        yaw,
+        text,
+        prompt: freeText,
+      },
+      message: `Added free text hotspot in '${source}'.`,
+      clear: "none",
+    };
+  }
+
+  if (!tour.scenes[target]) {
+    throw new Error("Target scene must exist for navigation hotspots.");
+  }
+
+  return {
+    spot: {
+      kind: "scene",
+      pitch,
+      yaw,
+      targetScene: target,
+      text,
+      prompt: text,
+    },
+    message: `Added hotspot in '${source}' to '${target}'.`,
+    clear: "none",
+  };
+}
+
+function addHotspotToScene(source, pitch, yaw) {
+  const built = buildHotspotEntry(source, pitch, yaw);
+  built.spot.id = nextHotspotId();
+  tour.scenes[source].hotSpots.push(built.spot);
+  if (built.clear === "csv") {
+    el.csvUploadResult.textContent = "";
+  } else if (built.clear === "image") {
+    el.hotspotImageResult.textContent = "";
+  }
+  updateHotspotPositionFields(source);
+  setStatus(built.message);
+  return built.spot;
+}
+
+function deleteHotspotFromScene(sceneId, hotspotIndex) {
+  const scene = tour?.scenes?.[sceneId];
+  if (!scene || !Array.isArray(scene.hotSpots)) {
+    return false;
+  }
+  if (hotspotIndex < 0 || hotspotIndex >= scene.hotSpots.length) {
+    return false;
+  }
+
+  scene.hotSpots.splice(hotspotIndex, 1);
+  return true;
+}
+
+function suppressHotspotActivation(event) {
+  if (!hotspotMoveMode && !hotspotDeleteMode) {
+    return;
+  }
+  if (hotspotDeleteMode && event.type === "click") {
+    // Let delete-mode click handlers run on the hotspot wrapper.
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  if (typeof event.stopImmediatePropagation === "function") {
+    event.stopImmediatePropagation();
+  }
+}
+
+function finishHotspotMove(message = "") {
+  if (!dragState) {
+    return;
+  }
+  document.body.classList.remove("is-dragging-hotspot");
+  document.removeEventListener("mousemove", handleHotspotMove, true);
+  document.removeEventListener("mouseup", handleHotspotMoveEnd, true);
+  dragState = null;
+  if (message) {
+    setStatus(message);
+  }
+}
+
+function handleHotspotMove(event) {
+  if (!dragState || !viewer) {
+    return;
+  }
+
+  const deltaX = event.clientX - dragState.startClientX;
+  const deltaY = event.clientY - dragState.startClientY;
+  if (!dragState.didDrag && Math.hypot(deltaX, deltaY) < HOTSPOT_DRAG_THRESHOLD_PX) {
+    return;
+  }
+
+  dragState.didDrag = true;
+  event.preventDefault();
+  event.stopPropagation();
+
+  const coords = viewer.mouseEventToCoords(event);
+  if (!Array.isArray(coords) || coords.length < 2) {
+    return;
+  }
+
+  const spot = findHotspot(dragState.sceneId, dragState.hotspotIndex);
+  if (!spot) {
+    finishHotspotMove("Stopped hotspot move because the hotspot no longer exists.");
+    return;
+  }
+
+  spot.pitch = Number(coords[0].toFixed(2));
+  spot.yaw = Number(coords[1].toFixed(2));
+  updateHotspotPositionFields(dragState.sceneId);
+  if (!syncHotspotInViewer(dragState.sceneId, dragState.hotspotIndex)) {
+    renderViewerPreservingView();
+  }
+}
+
+function handleHotspotMoveEnd(event) {
+  if (!dragState) {
+    return;
+  }
+  if (dragState.didDrag) {
+    event.preventDefault();
+    event.stopPropagation();
+    finishHotspotMove("Hotspot moved. Save the tour to persist it.");
+    return;
+  }
+  finishHotspotMove("");
+}
+
+function attachHotspotMoveHandlers(wrap, hotSpotDiv, sceneId, hotspotIndex) {
+  hotSpotDiv.addEventListener("click", suppressHotspotActivation, true);
+  hotSpotDiv.addEventListener("mouseup", suppressHotspotActivation, true);
+  hotSpotDiv.addEventListener("contextmenu", suppressHotspotActivation, true);
+  wrap.addEventListener("contextmenu", (event) => {
+    if (hotspotMoveMode) {
+      event.preventDefault();
+    }
+  });
+  wrap.addEventListener("mousedown", (event) => {
+    if (!hotspotMoveMode || event.button !== 0 || !viewer || viewer.getScene() !== sceneId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    dragState = {
+      sceneId,
+      hotspotIndex,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      didDrag: false,
+    };
+    document.body.classList.add("is-dragging-hotspot");
+    document.addEventListener("mousemove", handleHotspotMove, true);
+    document.addEventListener("mouseup", handleHotspotMoveEnd, true);
+  });
+
+  wrap.addEventListener("click", (event) => {
+    if (!hotspotDeleteMode || hotspotMoveMode || event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
+
+    if (!deleteHotspotFromScene(sceneId, hotspotIndex)) {
+      setStatus("Unable to delete hotspot because it no longer exists.", true);
+      return;
+    }
+
+    renderViewerPreservingView();
+    setStatus("Hotspot deleted. Save the tour to persist changes.");
+  }, true);
+}
+
 function toPannellumHotspot(spot) {
   const common = {
+    id: spot.id,
     pitch: Number(spot.pitch || 0),
     yaw: Number(spot.yaw || 0),
     createTooltipFunc: createHotspotDom,
     createTooltipArgs: {
+      interactive: hotspotMoveMode || hotspotDeleteMode,
+      sceneId: spot.sceneId,
+      hotspotIndex: spot.hotspotIndex,
       prompt: spot.prompt || "",
       text: spot.text || "",
       kind: spot.kind || "scene",
@@ -569,7 +1187,9 @@ function toPannellumSceneConfig(scene) {
     title: scene.title || scene.id,
     type: "equirectangular",
     panorama: scene.panorama,
-    hotSpots: sourceHotspots.map((spot) => toPannellumHotspot(spot)),
+    hotSpots: sourceHotspots.map((spot, hotspotIndex) =>
+      toPannellumHotspot({ ...spot, sceneId: scene.id, hotspotIndex }),
+    ),
   };
 }
 
@@ -619,6 +1239,78 @@ function renderViewer(firstSceneOverride = null) {
 
   document.getElementById("viewer").innerHTML = "";
   viewer = pannellum.viewer("viewer", config);
+  const viewerNode = viewer.getContainer();
+  viewerNode.addEventListener("mousedown", (event) => {
+    if (!pendingHotspotPlacement || !viewer) {
+      return;
+    }
+    if (event.target.closest(".hotspot-wrap")) {
+      return;
+    }
+
+    if (event.button !== 0) {
+      return;
+    }
+
+    placementPointerState = {
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+  }, true);
+  viewerNode.addEventListener("mousemove", (event) => {
+    if (!placementPointerState) {
+      return;
+    }
+
+    const deltaX = event.clientX - placementPointerState.startX;
+    const deltaY = event.clientY - placementPointerState.startY;
+    if (Math.hypot(deltaX, deltaY) >= HOTSPOT_DRAG_THRESHOLD_PX) {
+      placementPointerState.moved = true;
+    }
+  }, true);
+  viewerNode.addEventListener("mouseup", (event) => {
+    if (!pendingHotspotPlacement || !viewer) {
+      placementPointerState = null;
+      return;
+    }
+    if (event.target.closest(".hotspot-wrap")) {
+      placementPointerState = null;
+      return;
+    }
+
+    const pointerState = placementPointerState;
+    placementPointerState = null;
+    if (!pointerState || pointerState.moved || event.button !== 0) {
+      return;
+    }
+
+    const coords = viewer.mouseEventToCoords(event);
+    if (!Array.isArray(coords) || coords.length < 2) {
+      return;
+    }
+
+    const source = pendingHotspotPlacement.source;
+    try {
+      addHotspotToScene(source, Number(coords[0].toFixed(2)), Number(coords[1].toFixed(2)));
+      const hotspotIndex = tour.scenes[source].hotSpots.length - 1;
+      cancelHotspotPlacement();
+      if (!syncHotspotInViewer(source, hotspotIndex)) {
+        renderViewer(source);
+      }
+      if (viewer) {
+        viewer.lookAt(Number(coords[0].toFixed(2)), Number(coords[1].toFixed(2)), viewer.getHfov(), false);
+        // Ensure click-placement does not leave the panorama in an active drag state.
+        window.requestAnimationFrame(() => {
+          stopViewerDragGesture();
+        });
+      }
+      setStatus("Hotspot placed in viewer. Save the tour to persist it.");
+    } catch (error) {
+      cancelHotspotPlacement();
+      setStatus(error.message || "Failed to place hotspot.", true);
+    }
+  }, true);
 }
 
 function fillSceneSelects() {
@@ -627,17 +1319,16 @@ function fillSceneSelects() {
   const optionsHtml = ids.map((id) => `<option value="${id}">${id}</option>`).join("");
 
   el.sceneSelect.innerHTML = optionsHtml;
-  el.hotspotSource.innerHTML = optionsHtml;
   el.hotspotTarget.innerHTML = optionsHtml;
 
   // Preselect the configured start scene for convenience.
   if (tour.meta?.startScene && ids.includes(tour.meta.startScene)) {
     el.sceneSelect.value = tour.meta.startScene;
-    el.hotspotSource.value = tour.meta.startScene;
   } else if (ids.length > 0) {
     el.sceneSelect.value = ids[0];
-    el.hotspotSource.value = ids[0];
   }
+
+  syncHotspotSourceSelection();
 }
 
 function setStatus(msg, isError = false) {
@@ -674,6 +1365,7 @@ function updateHotspotModeUI() {
   el.imageUploadWrap.style.display = wantsImageUpload ? "block" : "none";
   el.uploadHotspotImageButton.style.display = wantsImageUpload ? "block" : "none";
   el.hotspotImageResult.style.display = wantsImageUpload ? "block" : "none";
+  syncHotspotSourceSelection();
 }
 
 function updateSceneUploadUI() {
@@ -689,6 +1381,33 @@ function setPublishStatus(message, isError = false) {
   }
   el.publishResult.textContent = message;
   el.publishResult.style.color = isError ? "#ffd0d0" : "#d8ffe0";
+}
+
+function toggleViewerPlacement() {
+  const source = getActiveViewerSceneId();
+  if (!tour.scenes[source]) {
+    setStatus("Source scene must exist before placing a hotspot.", true);
+    return;
+  }
+
+  if (pendingHotspotPlacement) {
+    cancelHotspotPlacement();
+    setStatus("Viewer hotspot placement cancelled.");
+    return;
+  }
+
+  try {
+    buildHotspotEntry(source, 0, 0);
+  } catch (error) {
+    setStatus(error.message || "Hotspot details are incomplete.", true);
+    return;
+  }
+
+  beginHotspotPlacement(source);
+  if (viewer && viewer.getScene() !== source) {
+    viewer.loadScene(source);
+  }
+  setStatus("Click the panorama to place the hotspot.");
 }
 
 function updateHelpToggleLabel() {
@@ -743,6 +1462,36 @@ function toggleHelpWindow() {
 
 function setupEvents() {
   el.helpToggleButton.addEventListener("click", toggleHelpWindow);
+  el.placeHotspotButton.addEventListener("click", toggleViewerPlacement);
+  el.hotspotModeAddButton.addEventListener("click", () => {
+    const nextMode = hotspotPanelMode === "add" ? "none" : "add";
+    setHotspotPanelMode(nextMode);
+    if (nextMode === "add") {
+      setStatus("Hotspot add mode enabled. Configure details then click Place Hotspot In Viewer.");
+    } else {
+      setStatus("Hotspot add mode disabled.");
+    }
+  });
+
+  el.hotspotModeMoveButton.addEventListener("click", () => {
+    const nextMode = hotspotPanelMode === "move" ? "none" : "move";
+    setHotspotPanelMode(nextMode);
+    if (nextMode === "move") {
+      setStatus("Hotspot move mode enabled. Left-drag a hotspot to move it.");
+    } else {
+      setStatus("Hotspot move mode disabled.");
+    }
+  });
+
+  el.hotspotModeDeleteButton.addEventListener("click", () => {
+    const nextMode = hotspotPanelMode === "delete" ? "none" : "delete";
+    setHotspotPanelMode(nextMode);
+    if (nextMode === "delete") {
+      setStatus("Hotspot delete mode enabled. Click a hotspot to remove it.");
+    } else {
+      setStatus("Hotspot delete mode disabled.");
+    }
+  });
 
   el.refreshTours.addEventListener("click", async () => {
     try {
@@ -797,7 +1546,7 @@ function setupEvents() {
       return;
     }
     viewer.loadScene(selected);
-    el.hotspotSource.value = selected;
+    syncHotspotSourceSelection();
   });
 
   // Delete the selected scene and remove nav hotspots that target it.
@@ -944,161 +1693,6 @@ function setupEvents() {
   });
 
   // Capture current camera view for precise hotspot placement.
-  el.captureView.addEventListener("click", () => {
-    if (!viewer) {
-      setStatus("Viewer is empty. Add or load at least one scene first.", true);
-      return;
-    }
-    const pitch = viewer.getPitch();
-    const yaw = viewer.getYaw();
-    el.hotspotPitch.value = pitch.toFixed(2);
-    el.hotspotYaw.value = yaw.toFixed(2);
-    setStatus("Captured current view pitch/yaw.");
-  });
-
-  // Append a hotspot to source scene that navigates to target scene.
-  el.addHotspot.addEventListener("click", () => {
-    const kind = el.hotspotKind.value;
-    const source = el.hotspotSource.value;
-    const target = el.hotspotTarget.value;
-    const pitch = Number(el.hotspotPitch.value);
-    const yaw = Number(el.hotspotYaw.value);
-    const text =
-      el.hotspotLabel.value.trim() ||
-      (kind === "graph"
-        ? "View graphed data"
-        : kind === "image"
-          ? "View image"
-          : kind === "text"
-            ? "View text"
-            : `Go to ${target}`);
-
-    if (!tour.scenes[source]) {
-      setStatus("Source scene must exist.", true);
-      return;
-    }
-
-    if (Number.isNaN(pitch) || Number.isNaN(yaw)) {
-      setStatus("Pitch and yaw must be numeric.", true);
-      return;
-    }
-
-    if (kind === "graph") {
-      const csv = el.hotspotCsv.value.trim();
-      const x = el.hotspotX.value.trim();
-      const subplots = Number.parseInt(el.hotspotSubplots.value, 10);
-      const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 3) : 1;
-      const subplotConfigs = getSelectedSubplotConfigs().slice(0, subplotCount);
-      const yColumns = subplotConfigs.map((item) => item.y).filter((value) => Boolean(value));
-      const subplotTypes = subplotConfigs.map((item) => {
-        const normalized = String(item.type || "line").toLowerCase();
-        return ["line", "scatter", "bar"].includes(normalized) ? normalized : "line";
-      });
-      const invertedBars = subplotConfigs.map((item) => Boolean(item.invertBar));
-      const animate = el.hotspotAnimate.value === "true";
-      const animationSpeed = getGlobalAnimationSpeed();
-
-      if (!csv || yColumns.length !== subplotCount || subplotTypes.length !== subplotCount) {
-        setStatus("Graph hotspots require CSV plus one Y column per subplot.", true);
-        return;
-      }
-
-      tour.scenes[source].hotSpots.push({
-        kind: "graph",
-        pitch,
-        yaw,
-        text,
-        prompt: text,
-        graph: {
-          csv,
-          x,
-          y: yColumns[0],
-          yColumns,
-          subplots: subplotCount,
-          subplotTypes,
-          invertedBars,
-          animate,
-          animationSpeed,
-          size: "m",
-        },
-      });
-      el.csvUploadResult.textContent = "";
-      setStatus(`Added graph hotspot in '${source}'.`);
-    } else if (kind === "image") {
-      const fileName = el.hotspotImageFile.value.trim();
-      const caption = el.hotspotImageCaption.value.trim();
-      if (!fileName) {
-        setStatus("Image hotspots require an image file.", true);
-        return;
-      }
-
-      tour.scenes[source].hotSpots.push({
-        kind: "image",
-        pitch,
-        yaw,
-        text,
-        prompt: text,
-        image: {
-          file: fileName,
-          path: `/images2d/${currentAssetTour}/${fileName}`,
-          caption,
-        },
-      });
-      el.hotspotImageResult.textContent = "";
-      setStatus(`Added image hotspot in '${source}'.`);
-    } else if (kind === "text") {
-      const freeText = el.hotspotFreeText.value.trim();
-      if (!freeText) {
-        setStatus("Free text hotspots require text content.", true);
-        return;
-      }
-
-      tour.scenes[source].hotSpots.push({
-        kind: "text",
-        pitch,
-        yaw,
-        text,
-        prompt: freeText,
-      });
-      setStatus(`Added free text hotspot in '${source}'.`);
-    } else {
-      if (!tour.scenes[target]) {
-        setStatus("Target scene must exist for navigation hotspots.", true);
-        return;
-      }
-
-      tour.scenes[source].hotSpots.push({
-        kind: "scene",
-        pitch,
-        yaw,
-        targetScene: target,
-        text,
-        prompt: text,
-      });
-      setStatus(`Added hotspot in '${source}' to '${target}'.`);
-    }
-
-    // Prefer incremental hotspot insert to avoid tearing down WebGL context.
-    const newSpot = tour.scenes[source].hotSpots[tour.scenes[source].hotSpots.length - 1];
-    const panoSpot = toPannellumHotspot(newSpot);
-    if (!viewer) {
-      renderViewer(source);
-      return;
-    }
-    try {
-      viewer.addHotSpot(panoSpot, source);
-      if (viewer.getScene() !== source) {
-        setStatus(
-          `Hotspot added to '${source}'. Open that scene to see it.`,
-          false,
-        );
-      }
-    } catch (_error) {
-      // Fall back to full rerender if incremental add is not possible.
-      renderViewer(source);
-    }
-  });
-
   // Persist current in-memory tour to backend JSON file.
   el.saveTour.addEventListener("click", async () => {
     const tourName = resolveSaveTourName();
@@ -1168,6 +1762,7 @@ function setupEvents() {
     if (!tour.scenes) {
       tour.scenes = {};
     }
+    ensureHotspotIds();
 
     fillSceneSelects();
     renderViewer();
@@ -1178,7 +1773,14 @@ function setupEvents() {
     } catch (_error) {
       // Load is complete; tour list refresh failure is non-fatal.
     }
-    setStatus(`Tour '${loadedName}' loaded from disk.`);
+    const removedStaleGraphs = Number(body.removedStaleGraphs || 0);
+    if (removedStaleGraphs > 0) {
+      setStatus(
+        `Tour '${loadedName}' loaded from disk. Cleared ${removedStaleGraphs} stale cached graphs (renderer/settings changed).`,
+      );
+    } else {
+      setStatus(`Tour '${loadedName}' loaded from disk. Graph cache reused.`);
+    }
   });
 
   el.closeTourButton.addEventListener("click", async () => {
@@ -1199,6 +1801,7 @@ function setupEvents() {
     if (!tour.scenes) {
       tour.scenes = {};
     }
+    ensureHotspotIds();
 
     fillSceneSelects();
     renderViewer();
@@ -1210,7 +1813,12 @@ function setupEvents() {
       // Close completed; asset list refresh failure is non-fatal.
     }
     updateCurrentTourName("");
-    setStatus(`Closed tour '${body.closed || "tour"}' and cleared ${body.removedGraphs || 0} cached graphs.`);
+    const removedGraphs = Number(body.removedGraphs || 0);
+    if (removedGraphs > 0) {
+      setStatus(`Closed tour '${body.closed || "tour"}' and cleared ${removedGraphs} stale cached graphs.`);
+    } else {
+      setStatus(`Closed tour '${body.closed || "tour"}'. Graph cache preserved for faster reopen.`);
+    }
   });
 
   el.deleteTourButton.addEventListener("click", async () => {
@@ -1372,12 +1980,14 @@ async function boot() {
     if (!tour.scenes) {
       tour.scenes = {};
     }
+    ensureHotspotIds();
 
     fillSceneSelects();
     renderViewer();
     await refreshTourList("", "");
     await refreshImageList("");
     await refreshCsvSelects();
+    updateHotspotModeButtons();
     setupEvents();
     updateSceneUploadUI();
     updateHotspotModeUI();

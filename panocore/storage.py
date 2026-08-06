@@ -20,6 +20,9 @@ from .settings import (
 )
 
 
+GRAPH_CACHE_SIGNATURE_FILENAME = ".cache_signature"
+
+
 def ensure_paths() -> None:
     """Create required data directories if they do not exist."""
     TOUR_DIR.mkdir(parents=True, exist_ok=True)
@@ -87,6 +90,31 @@ def clear_graph_cache_for_tour(name: str | None) -> int:
             path.unlink()
             removed += 1
     return removed
+
+
+def graph_cache_signature_path_for_tour(name: str | None) -> Path:
+    """Return metadata file path storing graph cache signature for a tour."""
+    return graph_dir_for_tour(name) / GRAPH_CACHE_SIGNATURE_FILENAME
+
+
+def read_graph_cache_signature_for_tour(name: str | None) -> str | None:
+    """Read stored graph cache signature for a tour, if present."""
+    marker = graph_cache_signature_path_for_tour(name)
+    if not marker.exists() or not marker.is_file():
+        return None
+    try:
+        value = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value or None
+
+
+def write_graph_cache_signature_for_tour(name: str | None, signature: str) -> None:
+    """Persist graph cache signature metadata for a tour."""
+    graph_dir = graph_dir_for_tour(name)
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    marker = graph_cache_signature_path_for_tour(name)
+    marker.write_text(str(signature or "").strip(), encoding="utf-8")
 
 
 def ensure_tour_asset_dirs(name: str | None) -> tuple[Path, Path, Path, Path]:

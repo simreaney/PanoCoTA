@@ -1,3 +1,7 @@
+<p align="center">
+	<img src="static/branding/panocota_logo.png" alt="PanoCoTA logo" width="220" />
+</p>
+
 # PanoCoTA (Panoramic Content and Tours for Academia)
 
 PanoCoTA is a web app for creating interactive 360 tours for academic use.
@@ -21,7 +25,7 @@ This README is a practical step-by-step guide for first use.
 Windows PowerShell:
 
 ```powershell
-py -3 -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
@@ -62,16 +66,20 @@ For a read-only viewer: http://127.0.0.1:5000/viewer
 - Note: the scene Title is also used as the scene ID.
 
 3. Add hotspots
-- Open Add Hotspot.
-- Choose Source Scene.
-- Set Pitch and Yaw, or click Use Current View.
-- Enter hotspot Title.
+- In the Hotspots section, click Add Hotspot.
+- Choose Hotspot Type and enter hotspot Title.
+- For graph hotspots, choose subplot type/color/invert options as needed.
+- Click Place Hotspot In Viewer, then click once in the panorama to place it.
 
 Hotspot types:
 - Scene Navigation: choose Target Scene.
-- Graphed Data: upload/select CSV, choose columns, then add.
+- Graphed Data: upload/select CSV, choose x/y columns, subplot types, subplot colors, and optional Y-axis inversion.
 - Image: upload/select a 2D image, then add.
 - Free Text: enter Free Text Content, then add.
+
+Hotspot editing modes:
+- Move Hotspots: left-drag an existing hotspot to reposition it.
+- Delete Hotspots: click an existing hotspot to remove it.
 
 4. Save your tour
 - In Save Tour, choose an existing tour name or create a new one.
@@ -83,7 +91,10 @@ Hotspot types:
 ## Notes
 
 - Panorama and 2D images are stored separately per tour.
+- Click the sidebar logo to open a larger popup preview of the logo.
 - Graph hotspots can be static or animated.
+- Graph preview may downsample large datasets in-editor for responsiveness; exported graphs include full datasets.
+- Graph cache persists across closing/reopening tours and is auto-cleared only when graph renderer/settings signatures change.
 - Tests are not included yet and will be added later.
 
 ## Publish To GitHub Pages

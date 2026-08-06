@@ -12,11 +12,18 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
     />
-    <link rel="stylesheet" href="{{ url_for('static', filename='viewer.css', v='20260806b') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='viewer.css', v='20260806e') }}" />
   </head>
   <body>
     <div class="layout">
       <aside class="panel">
+        <a class="brand-logo-link" href="#logo-modal" aria-label="Open larger PanoCoTA logo">
+          <img
+            class="brand-logo"
+            src="{{ url_for('static', filename='branding/panocota_logo.png') }}"
+            alt="PanoCoTA logo"
+          />
+        </a>
         <h1>PanoCoTA Viewer</h1>
         <p class="subtitle">Read-only local tour viewer</p>
 
@@ -35,6 +42,14 @@
       <main class="viewer-wrap">
         <div id="viewer"></div>
       </main>
+    </div>
+
+    <div id="logo-modal" class="logo-modal" aria-hidden="true">
+      <a class="logo-modal-backdrop" href="#" aria-label="Close enlarged logo"></a>
+      <div class="logo-modal-content" role="dialog" aria-modal="true" aria-label="Enlarged PanoCoTA logo">
+        <a class="logo-modal-close" href="#" aria-label="Close">&times;</a>
+        <img class="logo-modal-image" src="{{ url_for('static', filename='branding/panocota_logo.png') }}" alt="Enlarged PanoCoTA logo" />
+      </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>

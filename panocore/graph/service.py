@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import platform
+from importlib import metadata
 from pathlib import Path
 
 from ..settings import DATA_DIR, GRAPH_RENDER_VERSION
@@ -10,6 +12,40 @@ from ..storage import data_dir_for_tour, graph_dir_for_tour, is_allowed_data_fil
 from .parsing import derive_y_axis_label, extract_multi_series, load_csv_rows
 from .render_matplotlib import MATPLOTLIB_AVAILABLE, generate_with_matplotlib
 from .render_pillow import generate_with_pillow
+
+
+def get_graph_cache_signature() -> str:
+    """Return a deterministic signature of graph renderer code and settings."""
+    signature_parts = [f"render_version={GRAPH_RENDER_VERSION}", f"python={platform.python_version()}"]
+    try:
+        signature_parts.append(f"matplotlib={metadata.version('matplotlib')}")
+    except metadata.PackageNotFoundError:
+        signature_parts.append("matplotlib=missing")
+
+    files_to_hash = [
+        Path(__file__),
+        Path(__file__).with_name("render_matplotlib.py"),
+        Path(__file__).with_name("render_pillow.py"),
+        Path(__file__).with_name("parsing.py"),
+        Path(__file__).with_name("common.py"),
+        Path(__file__).resolve().parents[1] / "settings.py",
+    ]
+
+    digest = hashlib.sha256()
+    for value in signature_parts:
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\n")
+
+    for path in files_to_hash:
+        digest.update(str(path).encode("utf-8"))
+        digest.update(b"\n")
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            digest.update(b"<missing>")
+        digest.update(b"\n")
+
+    return digest.hexdigest()
 
 
 def _clean_graph_inputs(
@@ -61,6 +97,24 @@ def _normalize_animation_speed(animation_speed: float | int | str | None) -> flo
     return max(0.25, min(4.0, value))
 
 
+def _normalize_max_points(max_points: int | str | None) -> int | None:
+    """Normalize optional max-points cap used for fast preview rendering."""
+    if max_points is None:
+        return None
+    text = str(max_points).strip()
+    if not text:
+        return None
+    try:
+        parsed = int(text)
+    except ValueError:
+        raise ValueError("maxPoints must be an integer greater than 10.")
+    if parsed == 0:
+        return None
+    if parsed < 10:
+        raise ValueError("maxPoints must be an integer greater than 10.")
+    return parsed
+
+
 def _normalize_subplot_types(subplot_types: list[str] | None, count: int) -> list[str]:
     """Normalize per-subplot graph types to line/scatter/bar."""
     allowed = {"line", "scatter", "bar"}
@@ -74,6 +128,37 @@ def _normalize_subplot_types(subplot_types: list[str] | None, count: int) -> lis
         if candidate not in allowed:
             raise ValueError("plotType must be one of: line, scatter, bar")
         normalized.append(candidate)
+    return normalized
+
+
+def _normalize_subplot_colors(subplot_colors: list[str] | None, count: int) -> list[str]:
+    """Normalize per-subplot colors to common named colors."""
+    allowed = {
+        "red",
+        "blue",
+        "green",
+        "orange",
+        "purple",
+        "teal",
+        "brown",
+        "black",
+        "gray",
+        "pink",
+    }
+    defaults = ["red", "teal", "orange"]
+    values = [str(value or "").strip().lower() for value in (subplot_colors or [])]
+    if values and len(values) != count:
+        raise ValueError("Number of color values must match subplot count.")
+
+    normalized: list[str] = []
+    for idx in range(count):
+        candidate = values[idx] if idx < len(values) else ""
+        if candidate in allowed:
+            normalized.append(candidate)
+        elif candidate:
+            raise ValueError("color must be one of: red, blue, green, orange, purple, teal, brown, black, gray, pink")
+        else:
+            normalized.append(defaults[idx % len(defaults)])
     return normalized
 
 
@@ -100,10 +185,9 @@ def _normalize_inverted_bars(inverted_bars: list[bool | str | int] | None, count
 
 
 def _validate_subplot_options(subplot_types: list[str], inverted_bars: list[bool]) -> None:
-    """Ensure subplot option combinations are semantically valid."""
-    for idx, plot_type in enumerate(subplot_types):
-        if plot_type != "bar" and inverted_bars[idx]:
-            raise ValueError("invertBar can only be true when plotType is 'bar'.")
+    """Ensure subplot option arrays align with each subplot."""
+    if len(subplot_types) != len(inverted_bars):
+        raise ValueError("plotType and invertBar option counts must match subplot count.")
 
 
 def _build_graph_filename(
@@ -111,24 +195,26 @@ def _build_graph_filename(
     x_col: str,
     y_cols: list[str],
     subplot_types: list[str],
+    subplot_colors: list[str],
     inverted_bars: list[bool],
     animate: bool,
     animation_speed: float,
     renderer: str,
     size: str,
+    max_points: int | None,
 ) -> str:
     """Create deterministic graph filename based on CSV and render inputs."""
     seed = (
         f"{GRAPH_RENDER_VERSION}|{csv_path.name}|{x_col}|{'|'.join(y_cols)}|"
-        f"{'|'.join(subplot_types)}|{'|'.join(str(flag) for flag in inverted_bars)}|"
-        f"{animate}|{animation_speed:.3f}|{renderer}|{size}|{csv_path.stat().st_mtime_ns}"
+        f"{'|'.join(subplot_types)}|{'|'.join(subplot_colors)}|{'|'.join(str(flag) for flag in inverted_bars)}|"
+        f"{animate}|{animation_speed:.3f}|{renderer}|{size}|{max_points or 0}|{csv_path.stat().st_mtime_ns}"
     )
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:18]
     ext = "gif" if animate else "png"
     return f"graph_{digest}.{ext}"
 
 
-def generate_graph_asset(
+def _generate_graph_asset_impl(
     csv_name: str,
     x_col: str | None,
     y_cols: list[str] | str | None,
@@ -136,23 +222,30 @@ def generate_graph_asset(
     y_label: str | None = None,
     y_unit: str | None = None,
     subplot_types: list[str] | None = None,
+    subplot_colors: list[str] | None = None,
     inverted_bars: list[bool | str | int] | None = None,
     animation_speed: float | int | str | None = 1.0,
     renderer: str = "auto",
     size: str = "m",
     tour_name: str = "tour",
-) -> str:
-    """Generate graph asset and return filename of cached/created image."""
+    max_points: int | str | None = None,
+) -> tuple[str, bool, int, int]:
+    """Generate graph asset and return filename plus preview sampling metadata."""
     safe_csv, safe_x, safe_y_cols, animate = _clean_graph_inputs(csv_name, x_col, y_cols, animate)
     renderer = (renderer or "auto").strip().lower()
     size = _normalize_size(size)
+    max_points = _normalize_max_points(max_points)
     animation_speed = _normalize_animation_speed(animation_speed)
     if renderer not in {"auto", "matplotlib", "pillow"}:
         raise ValueError("renderer must be one of: auto, matplotlib, pillow")
 
     normalized_subplot_types = _normalize_subplot_types(subplot_types, len(safe_y_cols))
+    normalized_subplot_colors = _normalize_subplot_colors(subplot_colors, len(safe_y_cols))
     normalized_inverted_bars = _normalize_inverted_bars(inverted_bars, len(safe_y_cols))
     _validate_subplot_options(normalized_subplot_types, normalized_inverted_bars)
+    if len(safe_y_cols) > 1 and renderer == "pillow" and MATPLOTLIB_AVAILABLE:
+        # Backward compatibility: old hotspot payloads may carry renderer='pillow'.
+        renderer = "matplotlib"
 
     csv_path = data_dir_for_tour(tour_name) / safe_csv
     if not csv_path.exists():
@@ -166,20 +259,46 @@ def generate_graph_asset(
         safe_x,
         safe_y_cols,
         normalized_subplot_types,
+        normalized_subplot_colors,
         normalized_inverted_bars,
         animate,
         animation_speed,
         renderer,
         size,
+        max_points,
     )
     graph_dir = graph_dir_for_tour(tour_name)
     graph_dir.mkdir(parents=True, exist_ok=True)
     output_path = graph_dir / graph_filename
+
+    sampled = False
+    original_points = 0
+    plotted_points = 0
+
     if output_path.exists():
-        return graph_filename
+        fields, rows = load_csv_rows(csv_path)
+        x_values_existing, _, _, _ = extract_multi_series(fields, rows, safe_x, safe_y_cols)
+        original_points = len(x_values_existing)
+        plotted_points = original_points
+        if max_points is not None and original_points > max_points:
+            sampled = True
+            plotted_points = max_points
+        return graph_filename, sampled, original_points, plotted_points
 
     fields, rows = load_csv_rows(csv_path)
     x_values, y_series, _, x_is_datetime = extract_multi_series(fields, rows, safe_x, safe_y_cols)
+    original_points = len(x_values)
+    plotted_points = original_points
+    if max_points is not None and len(x_values) > max_points:
+        # Uniform index sampling dramatically reduces matplotlib draw time on large files.
+        sampled = True
+        sample_count = max_points
+        span = len(x_values) - 1
+        indices = sorted({round(i * span / (sample_count - 1)) for i in range(sample_count)})
+        x_values = [x_values[idx] for idx in indices]
+        y_series = [[series[idx] for idx in indices] for series in y_series]
+        plotted_points = len(x_values)
+
     if len(safe_y_cols) == 1:
         y_axis_labels = [derive_y_axis_label(safe_y_cols[0], y_label, y_unit)]
     else:
@@ -197,12 +316,13 @@ def generate_graph_asset(
                 y_series,
                 y_axis_labels,
                 normalized_subplot_types,
+                normalized_subplot_colors,
                 normalized_inverted_bars,
                 animate,
                 animation_speed,
                 size,
             )
-            return graph_filename
+            return graph_filename, sampled, original_points, plotted_points
         except ValueError:
             raise
         except Exception as exc:
@@ -216,12 +336,13 @@ def generate_graph_asset(
                 y_series,
                 y_axis_labels,
                 normalized_subplot_types,
+                normalized_subplot_colors,
                 normalized_inverted_bars,
                 animate,
                 animation_speed,
                 size,
             )
-            return graph_filename
+            return graph_filename, sampled, original_points, plotted_points
         except ValueError:
             raise
         except Exception:
@@ -230,9 +351,9 @@ def generate_graph_asset(
     if subplot_count > 1:
         raise ValueError("Multiple subplots require the matplotlib renderer.")
 
-    if normalized_subplot_types[0] != "line" or normalized_inverted_bars[0]:
+    if normalized_subplot_types[0] != "line":
         if renderer == "pillow":
-            raise ValueError("Pillow renderer only supports line plots without inverted bars.")
+            raise ValueError("Pillow renderer only supports line plots.")
 
     generate_with_pillow(
         output_path,
@@ -243,5 +364,84 @@ def generate_graph_asset(
         animate,
         size,
         animation_speed,
+        normalized_inverted_bars[0],
+        normalized_subplot_colors[0],
+    )
+    return graph_filename, sampled, original_points, plotted_points
+
+
+def generate_graph_asset(
+    csv_name: str,
+    x_col: str | None,
+    y_cols: list[str] | str | None,
+    animate: bool,
+    y_label: str | None = None,
+    y_unit: str | None = None,
+    subplot_types: list[str] | None = None,
+    subplot_colors: list[str] | None = None,
+    inverted_bars: list[bool | str | int] | None = None,
+    animation_speed: float | int | str | None = 1.0,
+    renderer: str = "auto",
+    size: str = "m",
+    tour_name: str = "tour",
+    max_points: int | str | None = None,
+) -> str:
+    """Generate graph asset and return filename of cached/created image."""
+    graph_filename, _, _, _ = _generate_graph_asset_impl(
+        csv_name,
+        x_col,
+        y_cols,
+        animate,
+        y_label,
+        y_unit,
+        subplot_types,
+        subplot_colors,
+        inverted_bars,
+        animation_speed,
+        renderer,
+        size,
+        tour_name,
+        max_points,
     )
     return graph_filename
+
+
+def generate_graph_asset_with_info(
+    csv_name: str,
+    x_col: str | None,
+    y_cols: list[str] | str | None,
+    animate: bool,
+    y_label: str | None = None,
+    y_unit: str | None = None,
+    subplot_types: list[str] | None = None,
+    subplot_colors: list[str] | None = None,
+    inverted_bars: list[bool | str | int] | None = None,
+    animation_speed: float | int | str | None = 1.0,
+    renderer: str = "auto",
+    size: str = "m",
+    tour_name: str = "tour",
+    max_points: int | str | None = None,
+) -> dict:
+    """Generate graph asset and return filename plus preview sampling metadata."""
+    graph_filename, sampled, original_points, plotted_points = _generate_graph_asset_impl(
+        csv_name,
+        x_col,
+        y_cols,
+        animate,
+        y_label,
+        y_unit,
+        subplot_types,
+        subplot_colors,
+        inverted_bars,
+        animation_speed,
+        renderer,
+        size,
+        tour_name,
+        max_points,
+    )
+    return {
+        "filename": graph_filename,
+        "sampled": sampled,
+        "originalPoints": original_points,
+        "plottedPoints": plotted_points,
+    }

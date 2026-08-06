@@ -39,6 +39,74 @@ body {
   overflow-y: auto;
 }
 
+.brand-logo {
+  display: block;
+  width: 100%;
+  max-width: 138px;
+  margin: 0 0 10px;
+  border-radius: 12px;
+}
+
+.brand-logo-link {
+  display: inline-block;
+  border-radius: 12px;
+}
+
+.brand-logo-link:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+.brand-logo-link:hover .brand-logo {
+  filter: brightness(1.05);
+}
+
+.logo-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  z-index: 6000;
+}
+
+.logo-modal:target {
+  display: block;
+}
+
+.logo-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 14, 12, 0.78);
+  backdrop-filter: blur(4px);
+}
+
+.logo-modal-content {
+  position: relative;
+  z-index: 1;
+  width: min(90vw, 760px);
+  margin: 6vh auto 0;
+  border-radius: 18px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(23, 33, 25, 0.96), rgba(34, 49, 41, 0.96));
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.logo-modal-close {
+  position: absolute;
+  right: 10px;
+  top: 6px;
+  color: #f4fff8;
+  text-decoration: none;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.logo-modal-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+}
+
 h1 {
   font-family: "Bebas Neue", sans-serif;
   letter-spacing: 1px;

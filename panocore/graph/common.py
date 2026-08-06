@@ -62,6 +62,7 @@ def scale_points_for_canvas(
     right_pad: int,
     top_pad: int,
     bottom_pad: int,
+    invert_y: bool = False,
 ) -> tuple[list[tuple[float, float]], float, float]:
     """Map x/y series into plot coordinates for Pillow drawing."""
     x_numeric = coerce_x_numeric(x_values)
@@ -80,7 +81,10 @@ def scale_points_for_canvas(
         x_norm = (x_numeric[i] - x_min) / x_range
         x = left_pad + (x_norm * (width - (left_pad + right_pad)))
         y_norm = (y_val - y_min) / (y_max - y_min)
-        y = (height - bottom_pad) - (y_norm * (height - (top_pad + bottom_pad)))
+        if invert_y:
+            y = top_pad + (y_norm * (height - (top_pad + bottom_pad)))
+        else:
+            y = (height - bottom_pad) - (y_norm * (height - (top_pad + bottom_pad)))
         points.append((x, y))
 
     return points, y_min, y_max

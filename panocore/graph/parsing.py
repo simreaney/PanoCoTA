@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -46,21 +46,41 @@ def parse_datetime_value(text: str) -> datetime:
     """Parse text into datetime across common CSV timestamp formats."""
     normalized = text.strip().replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
     except ValueError:
         pass
 
     common_formats = (
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%d/%m/%Y",
+        "%m/%d/%Y",
+        "%d-%m-%Y",
+        "%m-%d-%Y",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
         "%Y/%m/%d %H:%M",
         "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M:%S.%f",
         "%d/%m/%Y %H:%M",
         "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S.%f",
         "%m/%d/%Y %H:%M",
         "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M:%S.%f",
+        "%Y%m%d",
+        "%d%m%Y",
     )
     for fmt in common_formats:
         try:
-            return datetime.strptime(normalized, fmt)
+            parsed = datetime.strptime(normalized, fmt)
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+            return parsed
         except ValueError:
             continue
 

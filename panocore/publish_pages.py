@@ -99,6 +99,7 @@ def _build_graph_for_hotspot(tour_name: str, graph_block: dict) -> str:
         y_label=str(graph_block.get("yLabel") or "").strip() or None,
         y_unit=str(graph_block.get("yUnit") or "").strip() or None,
         subplot_types=graph_block.get("subplotTypes") if isinstance(graph_block.get("subplotTypes"), list) else None,
+        subplot_colors=graph_block.get("subplotColors") if isinstance(graph_block.get("subplotColors"), list) else None,
         inverted_bars=graph_block.get("invertedBars") if isinstance(graph_block.get("invertedBars"), list) else None,
         animation_speed=graph_block.get("animationSpeed", 1.0),
         renderer=str(graph_block.get("renderer") or "auto"),

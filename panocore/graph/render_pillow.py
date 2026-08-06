@@ -18,6 +18,8 @@ def generate_with_pillow(
     animate: bool,
     size: str = "m",
     animation_speed: float = 1.0,
+    invert_y: bool = False,
+    line_color: str = "red",
 ) -> None:
     """Render a static PNG or animated GIF graph with Pillow."""
     size_to_canvas = {
@@ -40,6 +42,7 @@ def generate_with_pillow(
         right_pad=right_pad,
         top_pad=top_pad,
         bottom_pad=bottom_pad,
+        invert_y=invert_y,
     )
     x_ticks = build_x_ticks(x_values, points, x_is_datetime)
 
@@ -73,7 +76,10 @@ def generate_with_pillow(
         for i in range(y_tick_count):
             ratio = i / (y_tick_count - 1)
             y_pos = (height - bottom_pad) - (ratio * (height - (top_pad + bottom_pad)))
-            y_value = y_min + (ratio * (y_max - y_min))
+            if invert_y:
+                y_value = y_max - (ratio * (y_max - y_min))
+            else:
+                y_value = y_min + (ratio * (y_max - y_min))
             draw.line([(left_pad - 8, y_pos), (left_pad, y_pos)], fill="#667", width=1)
             draw.text((96, y_pos - 12), f"{y_value:.2f}", fill="#99a", font=meta_font)
 
@@ -92,10 +98,10 @@ def generate_with_pillow(
 
         visible = points if upto is None else points[:upto]
         if len(visible) >= 2:
-            draw.line(visible, fill="#e84855", width=5)
+            draw.line(visible, fill=line_color, width=5)
         if visible:
             x, y = visible[-1]
-            draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill="#ffd9dd")
+            draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill=line_color)
         return img
 
     if not animate:

@@ -55,11 +55,92 @@ body {
 
 /* Sidebar panel appearance. */
 .panel {
+  display: flex;
+  flex-direction: column;
   padding: 20px;
   background: linear-gradient(180deg, var(--panel), var(--panel-soft));
   height: calc(100vh - 28px);
   border-radius: 20px;
   overflow-y: auto;
+}
+
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 8px;
+}
+
+.brand-text {
+  min-width: 0;
+}
+
+.brand-logo {
+  display: block;
+  width: 146px;
+  max-width: 100%;
+  margin: 0;
+  border-radius: 12px;
+}
+
+.brand-logo-link {
+  display: inline-block;
+  border-radius: 12px;
+}
+
+.brand-logo-link:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+.brand-logo-link:hover .brand-logo {
+  filter: brightness(1.05);
+}
+
+.logo-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  z-index: 6000;
+}
+
+.logo-modal:target {
+  display: block;
+}
+
+.logo-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 14, 12, 0.78);
+  backdrop-filter: blur(4px);
+}
+
+.logo-modal-content {
+  position: relative;
+  z-index: 1;
+  width: min(90vw, 760px);
+  margin: 6vh auto 0;
+  border-radius: 18px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(23, 33, 25, 0.96), rgba(34, 49, 41, 0.96));
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.logo-modal-close {
+  position: absolute;
+  right: 10px;
+  top: 6px;
+  color: #f4fff8;
+  text-decoration: none;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.logo-modal-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
 }
 
 /* Brand title styling. */
@@ -72,12 +153,14 @@ h1 {
 
 /* Supporting subtitle under the title. */
 .subtitle {
-  margin: 0 0 18px;
+  margin: 0;
   opacity: 0.8;
+  line-height: 1.25;
 }
 
 .subtitle-credit {
-  margin: -10px 0 16px;
+  margin: auto 0 0;
+  padding-top: 10px;
   opacity: 0.75;
   font-size: 0.82rem;
 }
@@ -109,6 +192,17 @@ h1 {
 .section-block h2 {
   margin: 2px 0 10px;
   font-size: 1rem;
+}
+
+.hotspot-mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.hotspot-add-form.is-hidden {
+  display: none;
 }
 
 /* Stack each form label and its control. */
@@ -233,6 +327,12 @@ button.primary {
   font-weight: 700;
 }
 
+button.is-active {
+  background: var(--accent);
+  color: #241700;
+  font-weight: 700;
+}
+
 /* Tiny status text style used in sidebar feedback lines. */
 .micro {
   margin: 8px 2px 0;
@@ -252,6 +352,34 @@ button.primary {
   border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
+}
+
+body.is-placing-hotspot #viewer,
+body.is-placing-hotspot #viewer *,
+body.is-placing-hotspot .pnlm-container,
+body.is-placing-hotspot .pnlm-container * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3E%3Cline x1='15' y1='3' x2='15' y2='27' stroke='%23ffffff' stroke-width='2' stroke-linecap='square'/%3E%3Cline x1='3' y1='15' x2='27' y2='15' stroke='%23ffffff' stroke-width='2' stroke-linecap='square'/%3E%3Ccircle cx='15' cy='15' r='3' fill='%23ffffff'/%3E%3C/svg%3E") 15 15, crosshair !important;
+}
+
+body.is-moving-hotspots #viewer,
+body.is-moving-hotspots #viewer *,
+body.is-moving-hotspots .pnlm-container,
+body.is-moving-hotspots .pnlm-container * {
+  cursor: move !important;
+}
+
+body.is-deleting-hotspots #viewer,
+body.is-deleting-hotspots #viewer *,
+body.is-deleting-hotspots .pnlm-container,
+body.is-deleting-hotspots .pnlm-container * {
+  cursor: pointer !important;
+}
+
+body.is-dragging-hotspot #viewer,
+body.is-dragging-hotspot #viewer *,
+body.is-dragging-hotspot .pnlm-container,
+body.is-dragging-hotspot .pnlm-container * {
+  cursor: grabbing !important;
 }
 
 .viewer-empty {
@@ -304,6 +432,20 @@ button.primary {
   --prompt-border: rgba(122, 199, 79, 0.66);
 }
 
+body.is-moving-hotspots .hotspot-wrap--editable {
+  cursor: grab !important;
+}
+
+body.is-dragging-hotspot .hotspot-wrap--editable {
+  cursor: grabbing !important;
+}
+
+body.is-moving-hotspots .prompt-card,
+body.is-dragging-hotspot .prompt-card {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* Keep Pannellum internals present but visually hide default content. */
 .hotspot-host > :not(.hotspot-wrap) {
   opacity: 0;
@@ -314,6 +456,11 @@ button.primary {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
+  z-index: 30;
+}
+
+.pnlm-hotspot-base:hover {
+  z-index: 4000 !important;
 }
 
 /* Pulsing marker that indicates clickable navigation point. */
@@ -342,6 +489,7 @@ button.primary {
   transform: translateX(-6px) scale(0.96);
   opacity: 0;
   pointer-events: none;
+  z-index: 4100;
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
@@ -358,6 +506,11 @@ button.primary {
   width: min(72vw, 680px);
   max-width: min(72vw, 680px);
   background: rgba(36, 26, 7, 0.93);
+  transform: none;
+  transition: opacity 0.2s ease;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .prompt-card--text {
@@ -368,6 +521,14 @@ button.primary {
   margin-top: 8px;
   font-size: 0.92rem;
   color: #ffd9dd;
+}
+
+.graph-preview-note {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #ffd9dd;
+  opacity: 0.94;
 }
 
 .prompt-card--image .image-container {
@@ -417,6 +578,10 @@ button.primary {
   transform: translateX(0) scale(1);
 }
 
+.hotspot-wrap:hover .prompt-card--image {
+  transform: none;
+}
+
 /* Pulse animation for hotspot marker. */
 @keyframes ping {
   0% {
@@ -436,6 +601,10 @@ button.primary {
     grid-template-columns: 1fr;
     gap: 0;
     padding: 0;
+  }
+
+  .brand-header {
+    align-items: flex-start;
   }
 
   .panel {

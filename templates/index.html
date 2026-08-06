@@ -31,16 +31,26 @@
     />
 
     <!-- App-specific UI theme and hotspot animation styles. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260806x') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260806zd') }}" />
   </head>
   <body>
     <!-- Two-column layout: left control panel, right panorama viewer. -->
     <div class="layout">
       <!-- Sidebar contains all authoring controls. -->
       <aside class="panel">
-        <h1>PanoCoTA</h1>
-        <p class="subtitle"><span class="subtitle-acronym">Pano</span>ramic <span class="subtitle-acronym">Co</span>ntent and <span class="subtitle-acronym">T</span>ours for <span class="subtitle-acronym">A</span>cademia</p>
-        <p class="subtitle-credit">© Aaron Neill</p>
+        <div class="brand-header">
+          <a class="brand-logo-link" href="#logo-modal" aria-label="Open larger PanoCoTA logo">
+            <img
+              class="brand-logo"
+              src="{{ url_for('static', filename='branding/panocota_logo.png') }}"
+              alt="PanoCoTA logo"
+            />
+          </a>
+          <div class="brand-text">
+            <h1>PANOCOTA</h1>
+            <p class="subtitle"><span class="subtitle-acronym">Pano</span>ramic <span class="subtitle-acronym">Co</span>ntent and <span class="subtitle-acronym">T</span>ours for <span class="subtitle-acronym">A</span>cademia</p>
+          </div>
+        </div>
 
         <section class="section-block">
           <h2>Current Tour</h2>
@@ -117,89 +127,83 @@
           <button id="add-scene">Add Scene</button>
         </section>
 
-        <!-- Form to add navigational hotspots between scenes. -->
+        <!-- Form to configure hotspot content and place or move it in the viewer. -->
         <section class="section-block">
-          <h2>Add Hotspot</h2>
-          <label>
-            Hotspot Type
-            <select id="hotspot-kind">
-              <option value="scene">Scene Navigation</option>
-              <option value="graph">Graphed Data</option>
-              <option value="image">Image</option>
-              <option value="text">Free Text</option>
-            </select>
-          </label>
-          <label>
-            Source Scene
-            <select id="hotspot-source"></select>
-          </label>
-          <label id="target-scene-wrap">
-            Target Scene
-            <select id="hotspot-target"></select>
-          </label>
-          <label>
-            Pitch
-            <input id="hotspot-pitch" type="number" step="0.1" value="0" />
-          </label>
-          <label>
-            Yaw
-            <input id="hotspot-yaw" type="number" step="0.1" value="0" />
-          </label>
-          <button id="capture-view">Use Current View</button>
-          <label>
-            Title
-            <input id="hotspot-label" placeholder="Open hotspot" />
-          </label>
-          <label id="text-content-wrap">
-            Free Text Content
-            <textarea id="hotspot-free-text" rows="4" placeholder="Enter free text to show on hover"></textarea>
-          </label>
-          <label id="graph-csv-wrap">
-            Graph CSV File
-            <select id="hotspot-csv"></select>
-          </label>
-          <label id="graph-upload-wrap">
-            <input id="csv-upload" type="file" accept=".csv" />
-          </label>
-          <button id="upload-csv-button">Upload CSV</button>
-          <p id="csv-upload-result" class="micro"></p>
-          <label id="graph-x-wrap">
-            X Column (optional)
-            <select id="hotspot-x"></select>
-          </label>
-          <label id="graph-subplots-wrap">
-            Number of Subplots
-            <select id="hotspot-subplots">
-              <option value="1" selected>1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-            </select>
-          </label>
-          <label id="graph-y-wrap">
-            Y Columns (one per subplot)
-            <div id="hotspot-y-selects"></div>
-          </label>
-          <label id="graph-animate-wrap">
-            Animate
-            <select id="hotspot-animate">
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
-          </label>
-          <label id="image-file-wrap">
-            2D Photo File
-            <select id="hotspot-image-file"></select>
-          </label>
-          <label id="image-caption-wrap">
-            Image Caption (optional)
-            <textarea id="hotspot-image-caption" rows="3" placeholder="Add a caption shown below the image"></textarea>
-          </label>
-          <label id="image-upload-wrap">
-            <input id="hotspot-image-upload" type="file" accept=".jpg,.jpeg,.png,.webp" />
-          </label>
-          <button id="upload-hotspot-image">Upload Image</button>
-          <p id="hotspot-image-result" class="micro"></p>
-          <button id="add-hotspot">Add Hotspot</button>
+          <h2>Hotspots</h2>
+          <div class="hotspot-mode-buttons">
+            <button id="hotspot-mode-add">Add Hotspot</button>
+            <button id="hotspot-mode-move">Move Hotspots</button>
+            <button id="hotspot-mode-delete">Delete Hotspots</button>
+          </div>
+          <div id="hotspot-add-form" class="hotspot-add-form is-hidden">
+            <label>
+              Hotspot Type
+              <select id="hotspot-kind">
+                <option value="scene">Scene Navigation</option>
+                <option value="graph">Graphed Data</option>
+                <option value="image">Image</option>
+                <option value="text">Free Text</option>
+              </select>
+            </label>
+            <label id="target-scene-wrap">
+              Target Scene
+              <select id="hotspot-target"></select>
+            </label>
+            <label>
+              Title
+              <input id="hotspot-label" placeholder="Open hotspot" />
+            </label>
+            <label id="text-content-wrap">
+              Free Text Content
+              <textarea id="hotspot-free-text" rows="4" placeholder="Enter free text to show on hover"></textarea>
+            </label>
+            <label id="graph-csv-wrap">
+              Graph CSV File
+              <select id="hotspot-csv"></select>
+            </label>
+            <label id="graph-upload-wrap">
+              <input id="csv-upload" type="file" accept=".csv" />
+            </label>
+            <button id="upload-csv-button">Upload CSV</button>
+            <p id="csv-upload-result" class="micro"></p>
+            <label id="graph-x-wrap">
+              X Column (optional)
+              <select id="hotspot-x"></select>
+            </label>
+            <label id="graph-subplots-wrap">
+              Number of Subplots
+              <select id="hotspot-subplots">
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </label>
+            <label id="graph-y-wrap">
+              Y Columns (one per subplot)
+              <div id="hotspot-y-selects"></div>
+            </label>
+            <label id="graph-animate-wrap">
+              Animate
+              <select id="hotspot-animate">
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </label>
+            <label id="image-file-wrap">
+              2D Photo File
+              <select id="hotspot-image-file"></select>
+            </label>
+            <label id="image-caption-wrap">
+              Image Caption (optional)
+              <textarea id="hotspot-image-caption" rows="3" placeholder="Add a caption shown below the image"></textarea>
+            </label>
+            <label id="image-upload-wrap">
+              <input id="hotspot-image-upload" type="file" accept=".jpg,.jpeg,.png,.webp" />
+            </label>
+            <button id="upload-hotspot-image">Upload Image</button>
+            <p id="hotspot-image-result" class="micro"></p>
+            <button id="place-hotspot">Place Hotspot In Viewer</button>
+          </div>
         </section>
 
         <section class="section-block">
@@ -239,6 +243,8 @@
           <p id="publish-result" class="micro"></p>
         </section>
 
+        <p class="subtitle-credit">© Aaron Neill</p>
+
       </aside>
 
       <!-- Main viewer region where pannellum renders the equirectangular panorama. -->
@@ -247,10 +253,18 @@
       </main>
     </div>
 
+    <div id="logo-modal" class="logo-modal" aria-hidden="true">
+      <a class="logo-modal-backdrop" href="#" aria-label="Close enlarged logo"></a>
+      <div class="logo-modal-content" role="dialog" aria-modal="true" aria-label="Enlarged PanoCoTA logo">
+        <a class="logo-modal-close" href="#" aria-label="Close">&times;</a>
+        <img class="logo-modal-image" src="{{ url_for('static', filename='branding/panocota_logo.png') }}" alt="Enlarged PanoCoTA logo" />
+      </div>
+    </div>
+
     <!-- Pannellum runtime. -->
     <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
 
     <!-- Application logic for loading/saving tour and wiring UI events. -->
-    <script src="{{ url_for('static', filename='app.js', v='20260806af') }}"></script>
+    <script src="{{ url_for('static', filename='app.js', v='20260806as') }}"></script>
   </body>
 </html>

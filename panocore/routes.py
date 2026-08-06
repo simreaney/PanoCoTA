@@ -9,7 +9,7 @@ import os
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from .publish_pages import export_and_publish
-from .graph.service import generate_graph_asset
+from .graph.service import generate_graph_asset_with_info, get_graph_cache_signature
 from .default_tour import get_empty_tour
 from .settings import DATA_DIR, GRAPHS_DIR, IMAGES_2D_DIR, IMAGES_360_DIR, LEGACY_IMAGES_DIR
 from .storage import (
@@ -28,11 +28,16 @@ from .storage import (
     list_csvs_for_tour,
     load_tour,
     panorama_dir_for_tour,
+    read_graph_cache_signature_for_tour,
     normalize_tour_name,
     sanitize_filename,
     save_tour,
+    write_graph_cache_signature_for_tour,
     write_uploaded_file,
 )
+
+
+GRAPH_PREVIEW_MAX_POINTS_DEFAULT = 2200
 
 
 def register_routes(app: Flask) -> None:
@@ -53,9 +58,21 @@ def register_routes(app: Flask) -> None:
             return "meta.startScene must reference an existing scene."
         return None
 
+    def refresh_graph_cache_for_signature(tour_name: str) -> int:
+        """Clear and refresh a tour's graph cache only when renderer signature changed."""
+        normalized = normalize_tour_name(tour_name)
+        current_signature = get_graph_cache_signature()
+        previous_signature = read_graph_cache_signature_for_tour(normalized)
+        removed = 0
+        if previous_signature and previous_signature != current_signature:
+            removed = clear_graph_cache_for_tour(normalized)
+        if previous_signature != current_signature:
+            write_graph_cache_signature_for_tour(normalized, current_signature)
+        return removed
+
     @app.get("/")
     def index():
-        """Render the single-page editor and viewer UI."""
+        """Render the single-page editor UI."""
         return render_template("index.html")
 
     @app.get("/viewer")
@@ -126,24 +143,28 @@ def register_routes(app: Flask) -> None:
         if error:
             return jsonify({"error": f"Saved tour is invalid: {error}"}), 400
 
-        if current_tour_name != name:
-            clear_graph_cache_for_tour(current_tour_name)
-
         current_tour_name = name
         ensure_tour_asset_dirs(current_tour_name)
+        removed_stale_graphs = refresh_graph_cache_for_signature(current_tour_name)
         current_tour = copy.deepcopy(loaded)
-        return jsonify({"ok": True, "tour": current_tour, "name": name})
+        return jsonify(
+            {
+                "ok": True,
+                "tour": current_tour,
+                "name": name,
+                "removedStaleGraphs": removed_stale_graphs,
+            }
+        )
 
     @app.post("/api/tour/close")
     def close_tour():
-        """Close the current tour and clear its cached graph files."""
+        """Close the current tour while preserving graph cache for faster reopen."""
         nonlocal current_tour, current_tour_name
         closed_name = current_tour_name
-        removed = clear_graph_cache_for_tour(closed_name)
         current_tour = get_empty_tour()
         current_tour_name = normalize_tour_name(None)
         ensure_tour_asset_dirs(current_tour_name)
-        return jsonify({"ok": True, "closed": closed_name, "removedGraphs": removed, "tour": current_tour})
+        return jsonify({"ok": True, "closed": closed_name, "removedGraphs": 0, "tour": current_tour})
 
     @app.get("/api/tours")
     def list_tours():
@@ -171,6 +192,8 @@ def register_routes(app: Flask) -> None:
         error = validate_tour_payload(loaded)
         if error:
             return jsonify({"error": f"Saved tour is invalid: {error}"}), 400
+
+        refresh_graph_cache_for_signature(name)
 
         return jsonify({"ok": True, "tour": loaded, "name": name})
 
@@ -372,11 +395,15 @@ def register_routes(app: Flask) -> None:
         y_label = (request.args.get("yLabel") or "").strip()
         y_unit = (request.args.get("yUnit") or "").strip()
         subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
+        subplot_colors = [value.strip().lower() for value in request.args.getlist("color") if value is not None]
         inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
         animation_speed_raw = (request.args.get("animationSpeed") or "1").strip()
+        max_points_raw = (request.args.get("maxPoints") or "").strip()
         renderer = (request.args.get("renderer") or "auto").strip().lower()
         size = (request.args.get("size") or "m").strip().lower()
         animate = (request.args.get("animate") or "false").lower() in {"1", "true", "yes"}
+
+        refresh_graph_cache_for_signature(current_tour_name)
 
         try:
             animation_speed = float(animation_speed_raw)
@@ -384,6 +411,16 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "animationSpeed must be a positive number."}), 400
         if animation_speed <= 0:
             return jsonify({"error": "animationSpeed must be greater than zero."}), 400
+
+        if max_points_raw:
+            try:
+                max_points = int(max_points_raw)
+            except ValueError:
+                return jsonify({"error": "maxPoints must be an integer greater than 10."}), 400
+            if max_points != 0 and max_points < 10:
+                return jsonify({"error": "maxPoints must be an integer greater than 10."}), 400
+        else:
+            max_points = GRAPH_PREVIEW_MAX_POINTS_DEFAULT
 
         if subplots_raw:
             try:
@@ -396,11 +433,13 @@ def register_routes(app: Flask) -> None:
                 return jsonify({"error": "Number of y columns must match subplot count."}), 400
             if subplot_types and len(subplot_types) != subplot_count:
                 return jsonify({"error": "Number of plotType values must match subplot count."}), 400
+            if subplot_colors and len(subplot_colors) != subplot_count:
+                return jsonify({"error": "Number of color values must match subplot count."}), 400
             if inverted_bars and len(inverted_bars) != subplot_count:
                 return jsonify({"error": "Number of invertBar values must match subplot count."}), 400
 
         try:
-            graph_filename = generate_graph_asset(
+            graph_result = generate_graph_asset_with_info(
                 csv_name,
                 x_col,
                 y_cols,
@@ -408,23 +447,28 @@ def register_routes(app: Flask) -> None:
                 y_label=y_label,
                 y_unit=y_unit,
                 subplot_types=subplot_types,
+                subplot_colors=subplot_colors,
                 inverted_bars=inverted_bars,
                 animation_speed=animation_speed,
                 renderer=renderer,
                 size=size,
                 tour_name=current_tour_name,
+                max_points=max_points,
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        except Exception:
-            return jsonify({"error": "Graph generation failed."}), 500
+        except Exception as exc:
+            return jsonify({"error": f"Graph generation failed: {exc}"}), 500
 
         return jsonify(
             {
                 "ok": True,
-                "path": f"/graphs/{current_tour_name}/{graph_filename}",
+                "path": f"/graphs/{current_tour_name}/{graph_result['filename']}",
                 "animated": animate,
                 "tour": current_tour_name,
+                "sampled": graph_result["sampled"],
+                "originalPoints": graph_result["originalPoints"],
+                "plottedPoints": graph_result["plottedPoints"],
             }
         )
 
@@ -447,11 +491,15 @@ def register_routes(app: Flask) -> None:
         y_label = (request.args.get("yLabel") or "").strip()
         y_unit = (request.args.get("yUnit") or "").strip()
         subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
+        subplot_colors = [value.strip().lower() for value in request.args.getlist("color") if value is not None]
         inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
         animation_speed_raw = (request.args.get("animationSpeed") or "1").strip()
+        max_points_raw = (request.args.get("maxPoints") or "").strip()
         renderer = (request.args.get("renderer") or "auto").strip().lower()
         size = (request.args.get("size") or "m").strip().lower()
         animate = (request.args.get("animate") or "false").lower() in {"1", "true", "yes"}
+
+        refresh_graph_cache_for_signature(tour_name)
 
         try:
             animation_speed = float(animation_speed_raw)
@@ -459,6 +507,16 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "animationSpeed must be a positive number."}), 400
         if animation_speed <= 0:
             return jsonify({"error": "animationSpeed must be greater than zero."}), 400
+
+        if max_points_raw:
+            try:
+                max_points = int(max_points_raw)
+            except ValueError:
+                return jsonify({"error": "maxPoints must be an integer greater than 10."}), 400
+            if max_points != 0 and max_points < 10:
+                return jsonify({"error": "maxPoints must be an integer greater than 10."}), 400
+        else:
+            max_points = GRAPH_PREVIEW_MAX_POINTS_DEFAULT
 
         if subplots_raw:
             try:
@@ -471,11 +529,13 @@ def register_routes(app: Flask) -> None:
                 return jsonify({"error": "Number of y columns must match subplot count."}), 400
             if subplot_types and len(subplot_types) != subplot_count:
                 return jsonify({"error": "Number of plotType values must match subplot count."}), 400
+            if subplot_colors and len(subplot_colors) != subplot_count:
+                return jsonify({"error": "Number of color values must match subplot count."}), 400
             if inverted_bars and len(inverted_bars) != subplot_count:
                 return jsonify({"error": "Number of invertBar values must match subplot count."}), 400
 
         try:
-            graph_filename = generate_graph_asset(
+            graph_result = generate_graph_asset_with_info(
                 csv_name,
                 x_col,
                 y_cols,
@@ -483,23 +543,28 @@ def register_routes(app: Flask) -> None:
                 y_label=y_label,
                 y_unit=y_unit,
                 subplot_types=subplot_types,
+                subplot_colors=subplot_colors,
                 inverted_bars=inverted_bars,
                 animation_speed=animation_speed,
                 renderer=renderer,
                 size=size,
                 tour_name=tour_name,
+                max_points=max_points,
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        except Exception:
-            return jsonify({"error": "Graph generation failed."}), 500
+        except Exception as exc:
+            return jsonify({"error": f"Graph generation failed: {exc}"}), 500
 
         return jsonify(
             {
                 "ok": True,
-                "path": f"/graphs/{tour_name}/{graph_filename}",
+                "path": f"/graphs/{tour_name}/{graph_result['filename']}",
                 "animated": animate,
                 "tour": tour_name,
+                "sampled": graph_result["sampled"],
+                "originalPoints": graph_result["originalPoints"],
+                "plottedPoints": graph_result["plottedPoints"],
             }
         )
 

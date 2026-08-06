@@ -1,0 +1,71 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">PanoCoTA UI logo</title>
+  <desc id="desc">A panna cotta icon with red syrup top, drip, and panorama layers, styled for the PanoCoTA UI palette.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="160" y1="120" x2="860" y2="920" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#25362D"/>
+      <stop offset="1" stop-color="#131E18"/>
+    </linearGradient>
+
+    <linearGradient id="glass" x1="286" y1="282" x2="770" y2="776" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F8FFF3"/>
+      <stop offset="1" stop-color="#D9EDE2"/>
+    </linearGradient>
+
+    <linearGradient id="syrup" x1="288" y1="278" x2="748" y2="468" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF636E"/>
+      <stop offset="1" stop-color="#C92F3D"/>
+    </linearGradient>
+
+    <linearGradient id="plate" x1="250" y1="700" x2="778" y2="844" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E5F2EA" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#B7CEC2" stop-opacity="0.75"/>
+    </linearGradient>
+
+    <radialGradient id="shine" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(428 420) rotate(31) scale(244 186)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="softShadow" x="160" y="140" width="704" height="760" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feOffset dy="16"/>
+      <feGaussianBlur stdDeviation="16"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.02 0 0 0 0 0.08 0 0 0 0 0.05 0 0 0 0.45 0"/>
+      <feBlend in2="SourceGraphic" mode="normal"/>
+    </filter>
+
+    <filter id="dropGlow" x="596" y="252" width="182" height="338" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="128" fill="url(#bg)"/>
+
+  <g filter="url(#softShadow)">
+    <ellipse cx="514" cy="784" rx="316" ry="84" fill="url(#plate)"/>
+    <ellipse cx="514" cy="784" rx="284" ry="58" fill="#D9EDE2" fill-opacity="0.5"/>
+
+    <path d="M288 420C312 326 410 270 514 270C618 270 716 326 740 420L778 686C778 760 660 808 514 808C368 808 250 760 250 686L288 420Z" fill="url(#glass)"/>
+
+    <path d="M284 420C304 332 402 282 514 282C626 282 724 332 744 420" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="10" stroke-linecap="round"/>
+
+    <path d="M300 420C300 344 402 286 514 286C626 286 728 344 728 420C728 472 676 500 626 500H564C534 500 510 512 500 536C490 560 468 572 438 572H402C350 572 300 520 300 420Z" fill="url(#syrup)"/>
+
+    <g filter="url(#dropGlow)">
+      <path d="M640 494C688 494 724 530 724 584C724 627 698 654 668 654C638 654 616 632 616 600C616 554 636 514 640 494Z" fill="url(#syrup)"/>
+    </g>
+
+    <path d="M640 494C688 494 724 530 724 584C724 627 698 654 668 654" stroke="#FFB5BC" stroke-opacity="0.7" stroke-width="6" stroke-linecap="round"/>
+
+    <path d="M344 602C372 588 398 576 428 590C452 602 482 608 512 594C542 580 568 576 594 590C620 604 646 610 680 598" stroke="#BFD5C9" stroke-opacity="0.55" stroke-width="20" stroke-linecap="round"/>
+    <path d="M326 642C358 622 394 620 426 634C458 648 490 652 524 636C560 620 594 618 626 632C658 646 688 648 714 638" stroke="#CFE2D7" stroke-opacity="0.45" stroke-width="17" stroke-linecap="round"/>
+
+    <circle cx="366" cy="534" r="33" fill="#E84855" fill-opacity="0.2"/>
+    <circle cx="366" cy="534" r="22" fill="#E84855" fill-opacity="0.35"/>
+
+    <ellipse cx="458" cy="438" rx="132" ry="44" fill="url(#shine)"/>
+
+    <text x="512" y="432" text-anchor="middle" font-family="Bebas Neue, Space Grotesk, sans-serif" font-size="118" letter-spacing="2" fill="#F4FFF8">PANOCOTA</text>
+  </g>
+</svg>
