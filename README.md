@@ -2,9 +2,7 @@
 
 <br clear="left" />
 
-# PANOCOTA
-
-## **Pano**ramic **Co**ntent and **T**ours for **A**cademia
+# PanoCoTA (*Pano*ramic *Co*ntent and *T*ours for *A*cademia)
 
 PanoCoTA is a web app for creating interactive 360 tours for academic use.
 
