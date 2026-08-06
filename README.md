@@ -1,8 +1,8 @@
 <img src="static/branding/panocota_logo.png" alt="PanoCoTA logo" width="220" align="left" />
 
-# PANOCOTA
+<p><font size="7"><strong>PANOCOTA</strong></font></p>
 
-## **Pano**ramic **Co**ntent and **T**ours for **A**cademia
+<p><font size="5"><strong>Pano</strong>ramic <strong>Co</strong>ntent and <strong>T</strong>ours for <strong>A</strong>cademia</font></p>
 
 <br clear="left" />
 
