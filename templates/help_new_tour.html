@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PanoCoTA Tour Help</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
+    />
+    <style>
+      :root {
+        --bg-a: #f4f8ef;
+        --bg-b: #cfe6df;
+        --panel: #172119;
+        --panel-soft: #223129;
+        --text: #ebf6e8;
+        --surface-text: #ebf6e8;
+        --accent: #e84855;
+        --soft-border: rgba(255, 255, 255, 0.16);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Space Grotesk", sans-serif;
+        background: radial-gradient(circle at 18% 12%, #f8ffd9 0%, transparent 36%),
+          linear-gradient(130deg, var(--bg-a), var(--bg-b));
+        color: var(--text);
+        padding: 18px;
+      }
+
+      .help-shell {
+        max-width: 980px;
+        margin: 0 auto;
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 18px 36px rgba(0, 0, 0, 0.22);
+      }
+
+      .hero {
+        padding: 20px 24px;
+        background: linear-gradient(160deg, var(--panel), var(--panel-soft));
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 2.2rem;
+        letter-spacing: 1px;
+      }
+
+      .hero p {
+        margin: 6px 0 0;
+        opacity: 0.88;
+      }
+
+      .content {
+        background: linear-gradient(180deg, #132119, #1a2a22);
+        padding: 18px;
+      }
+
+      .step {
+        border: 1px solid var(--soft-border);
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 12px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .step h2 {
+        margin: 0 0 8px;
+        font-size: 1.05rem;
+      }
+
+      .step ol,
+      .step ul {
+        margin: 8px 0 0;
+        padding-left: 20px;
+      }
+
+      .step li {
+        margin-bottom: 6px;
+      }
+
+      .quick-tip {
+        border-left: 4px solid var(--accent);
+        padding: 10px 12px;
+        margin-top: 12px;
+        background: rgba(232, 72, 85, 0.1);
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 12px;
+      }
+
+      .actions button {
+        border: 1px solid var(--soft-border);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--surface-text);
+        padding: 8px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .actions button:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      @media (max-width: 740px) {
+        body {
+          padding: 10px;
+        }
+
+        .hero {
+          padding: 16px;
+        }
+
+        .content {
+          padding: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="help-shell">
+      <header class="hero">
+        <h1>Build Your First Tour</h1>
+        <p>Follow these steps in order from top to bottom inside the editor UI.</p>
+      </header>
+
+      <main class="content">
+        <section class="step">
+          <h2>Step 1: Upload a 360 panorama image</h2>
+          <ul>
+            <li>Open Add Scene and upload your panorama image file.</li>
+            <li>After upload, choose that file in the 360 Panorama Image dropdown.</li>
+          </ul>
+        </section>
+
+        <section class="step">
+          <h2>Step 2: Create your first scene</h2>
+          <ul>
+            <li>Enter a scene title in Add Scene.</li>
+            <li>Click Add Scene.</li>
+            <li>The title is also used as the scene ID.</li>
+          </ul>
+        </section>
+
+        <section class="step">
+          <h2>Step 3: Add hotspots</h2>
+          <ol>
+            <li>Open Add Hotspot.</li>
+            <li>Choose Source Scene.</li>
+            <li>Set Pitch and Yaw or click Use Current View.</li>
+            <li>Enter hotspot title text.</li>
+          </ol>
+          <p>Hotspot type setup:</p>
+          <ul>
+            <li>Scene Navigation: choose Target Scene.</li>
+            <li>Graphed Data: upload or select CSV, then pick x/y columns and subplot options.</li>
+            <li>Image: upload or select a 2D image and optional caption.</li>
+            <li>Free Text: enter Free Text Content to show on hover.</li>
+          </ul>
+        </section>
+
+        <section class="step">
+          <h2>Step 4: Save your tour</h2>
+          <ul>
+            <li>Open Save Tour.</li>
+            <li>Select an existing name or choose create new and enter one.</li>
+            <li>Click Save Tour To Disk.</li>
+          </ul>
+        </section>
+
+        <section class="step">
+          <h2>Step 5: Load and continue editing later</h2>
+          <ul>
+            <li>Open Load Tour.</li>
+            <li>Select a saved tour and click Load Tour From Disk.</li>
+          </ul>
+        </section>
+
+        <section class="step">
+          <h2>Step 6: Publish to GitHub Pages (optional)</h2>
+          <ul>
+            <li>Scroll to Publish To GitHub at the bottom of the sidebar.</li>
+            <li>Set owner, scope, branch, and token, then click Export and Publish.</li>
+          </ul>
+          <div class="quick-tip">Tip: Save your tour first before publishing to avoid missing-tour errors.</div>
+        </section>
+
+        <div class="actions">
+          <button type="button" onclick="window.close()">Close Help</button>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

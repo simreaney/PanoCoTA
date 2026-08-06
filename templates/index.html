@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Read This First:
+         1) This page is rendered by Flask route GET /.
+         2) Pannellum CSS/JS are loaded from CDN for the 360 viewer runtime.
+         3) styles.css defines sidebar layout, hotspot visuals, and responsive behavior.
+         4) app.js fetches tour JSON, renders scenes, and wires all controls.
+         5) Sidebar sections map to scene select, scene add, hotspot add, upload, and save.
+         6) The #viewer element is where Pannellum mounts its panorama canvas.
+         7) User edits are in-memory until Save Tour posts to /api/tour.
+         8) Upload sends image files to /api/upload and returns /images/... paths.
+         9) Hotspot prompt text is shown as animated hover cards in the viewer.
+         10) Reloading this page pulls the latest persisted tour_data/tour.json. -->
+
+    <!-- Standard document metadata. -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PanoCoTA Virtual Tour Builder</title>
+
+    <!-- Pannellum styles required for 360 viewer controls and canvas layout. -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css"
+    />
+
+    <!-- Custom typography for dashboard and display title styling. -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
+    />
+
+    <!-- App-specific UI theme and hotspot animation styles. -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260806x') }}" />
+  </head>
+  <body>
+    <!-- Two-column layout: left control panel, right panorama viewer. -->
+    <div class="layout">
+      <!-- Sidebar contains all authoring controls. -->
+      <aside class="panel">
+        <h1>PanoCoTA</h1>
+        <p class="subtitle"><span class="subtitle-acronym">Pano</span>ramic <span class="subtitle-acronym">Co</span>ntent and <span class="subtitle-acronym">T</span>ours for <span class="subtitle-acronym">A</span>cademia</p>
+        <p class="subtitle-credit">© Aaron Neill</p>
+
+        <section class="section-block">
+          <h2>Current Tour</h2>
+          <p class="current-tour-name">Name: <strong id="current-tour-name">(none)</strong></p>
+          <button id="help-toggle">Open Tour Help</button>
+          <button id="close-tour">Close Tour</button>
+          <p id="status" class="micro"></p>
+        </section>
+
+        <section class="section-block">
+          <h2>Load Tour</h2>
+          <label>
+            Saved Tours
+            <select id="tour-select"></select>
+          </label>
+          <button id="refresh-tours">Refresh Tour List</button>
+          <button id="load-tour">Load Tour From Disk</button>
+          <button id="delete-tour">Delete Tour</button>
+        </section>
+
+        <section class="section-block">
+          <h2>Save Tour</h2>
+          <label>
+            Save Target
+            <select id="save-tour-select"></select>
+          </label>
+          <label id="save-tour-new-name-wrap">
+            New Tour Name
+            <input id="save-tour-new-name" placeholder="my_tour" />
+          </label>
+          <button id="save-tour" class="primary">Save Tour To Disk</button>
+        </section>
+
+        <section class="section-block">
+          <h2>Global Graph Settings</h2>
+          <label id="graph-animation-speed-wrap">
+            Animation Speed (all graphed hotspots)
+            <select id="global-animation-speed">
+              <option value="0.5">0.5x (Slower)</option>
+              <option value="1" selected>1x (Normal)</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x (Faster)</option>
+            </select>
+          </label>
+        </section>
+
+        <!-- Scene selection and quick scene jump action. -->
+        <section class="section-block">
+          <h2>Scene</h2>
+          <label>
+            Active Scene
+            <select id="scene-select"></select>
+          </label>
+          <button id="jump-scene">Open Scene</button>
+          <button id="delete-scene">Delete Scene</button>
+        </section>
+
+        <!-- Form to create new scene entries in the in-memory tour model. -->
+        <section class="section-block">
+          <h2>Add Scene</h2>
+          <label>
+            Title
+            <input id="new-scene-title" placeholder="Courtyard" />
+          </label>
+          <label>
+            360 Panorama Image
+            <select id="new-scene-panorama-select"></select>
+          </label>
+          <label id="scene-upload-wrap">
+            <input id="scene-image-upload" type="file" accept=".jpg,.jpeg,.png,.webp" />
+          </label>
+          <button id="upload-scene-image">Upload Image</button>
+          <p id="scene-image-result" class="micro"></p>
+          <button id="add-scene">Add Scene</button>
+        </section>
+
+        <!-- Form to add navigational hotspots between scenes. -->
+        <section class="section-block">
+          <h2>Add Hotspot</h2>
+          <label>
+            Hotspot Type
+            <select id="hotspot-kind">
+              <option value="scene">Scene Navigation</option>
+              <option value="graph">Graphed Data</option>
+              <option value="image">Image</option>
+              <option value="text">Free Text</option>
+            </select>
+          </label>
+          <label>
+            Source Scene
+            <select id="hotspot-source"></select>
+          </label>
+          <label id="target-scene-wrap">
+            Target Scene
+            <select id="hotspot-target"></select>
+          </label>
+          <label>
+            Pitch
+            <input id="hotspot-pitch" type="number" step="0.1" value="0" />
+          </label>
+          <label>
+            Yaw
+            <input id="hotspot-yaw" type="number" step="0.1" value="0" />
+          </label>
+          <button id="capture-view">Use Current View</button>
+          <label>
+            Title
+            <input id="hotspot-label" placeholder="Open hotspot" />
+          </label>
+          <label id="text-content-wrap">
+            Free Text Content
+            <textarea id="hotspot-free-text" rows="4" placeholder="Enter free text to show on hover"></textarea>
+          </label>
+          <label id="graph-csv-wrap">
+            Graph CSV File
+            <select id="hotspot-csv"></select>
+          </label>
+          <label id="graph-upload-wrap">
+            <input id="csv-upload" type="file" accept=".csv" />
+          </label>
+          <button id="upload-csv-button">Upload CSV</button>
+          <p id="csv-upload-result" class="micro"></p>
+          <label id="graph-x-wrap">
+            X Column (optional)
+            <select id="hotspot-x"></select>
+          </label>
+          <label id="graph-subplots-wrap">
+            Number of Subplots
+            <select id="hotspot-subplots">
+              <option value="1" selected>1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </label>
+          <label id="graph-y-wrap">
+            Y Columns (one per subplot)
+            <div id="hotspot-y-selects"></div>
+          </label>
+          <label id="graph-animate-wrap">
+            Animate
+            <select id="hotspot-animate">
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          </label>
+          <label id="image-file-wrap">
+            2D Photo File
+            <select id="hotspot-image-file"></select>
+          </label>
+          <label id="image-caption-wrap">
+            Image Caption (optional)
+            <textarea id="hotspot-image-caption" rows="3" placeholder="Add a caption shown below the image"></textarea>
+          </label>
+          <label id="image-upload-wrap">
+            <input id="hotspot-image-upload" type="file" accept=".jpg,.jpeg,.png,.webp" />
+          </label>
+          <button id="upload-hotspot-image">Upload Image</button>
+          <p id="hotspot-image-result" class="micro"></p>
+          <button id="add-hotspot">Add Hotspot</button>
+        </section>
+
+        <section class="section-block">
+          <h2>Publish To GitHub</h2>
+          <label>
+            Publish Scope
+            <select id="publish-scope">
+              <option value="current" selected>Current Tour</option>
+              <option value="all">All Saved Tours</option>
+            </select>
+          </label>
+          <label>
+            GitHub Owner (user or org)
+            <input id="publish-owner" placeholder="your-github-name" />
+          </label>
+          <label>
+            GitHub Repo (optional)
+            <input id="publish-repo" placeholder="auto-generated if empty" />
+          </label>
+          <label>
+            Owner Type
+            <select id="publish-owner-type">
+              <option value="user" selected>User</option>
+              <option value="org">Organization</option>
+            </select>
+          </label>
+          <label>
+            Branch
+            <input id="publish-branch" value="main" />
+          </label>
+          <label>
+            GitHub Token (one-time)
+            <input id="publish-token" type="password" placeholder="ghp_... or github_pat_..." autocomplete="off" />
+          </label>
+          <label class="publish-private-label"><input id="publish-private" type="checkbox" /> Create private repository</label>
+          <button id="publish-tour">Export and Publish</button>
+          <p id="publish-result" class="micro"></p>
+        </section>
+
+      </aside>
+
+      <!-- Main viewer region where pannellum renders the equirectangular panorama. -->
+      <main class="viewer-wrap">
+        <div id="viewer"></div>
+      </main>
+    </div>
+
+    <!-- Pannellum runtime. -->
+    <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
+
+    <!-- Application logic for loading/saving tour and wiring UI events. -->
+    <script src="{{ url_for('static', filename='app.js', v='20260806af') }}"></script>
+  </body>
+</html>

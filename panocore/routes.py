@@ -1,0 +1,536 @@
+"""Flask route registration for PanoCOTA."""
+
+from __future__ import annotations
+
+import copy
+import csv
+import os
+
+from flask import Flask, jsonify, render_template, request, send_from_directory
+
+from .publish_pages import export_and_publish
+from .graph.service import generate_graph_asset
+from .default_tour import get_empty_tour
+from .settings import DATA_DIR, GRAPHS_DIR, IMAGES_2D_DIR, IMAGES_360_DIR, LEGACY_IMAGES_DIR
+from .storage import (
+    clear_graph_cache_for_tour,
+    data_dir_for_tour,
+    delete_tour,
+    ensure_tour_asset_dirs,
+    graph_dir_for_tour,
+    image_2d_dir_for_tour,
+    image_dir_for_tour,
+    is_allowed_data_file,
+    is_allowed_image,
+    list_2d_images_for_tour,
+    list_panorama_images_for_tour,
+    list_tour_names,
+    list_csvs_for_tour,
+    load_tour,
+    panorama_dir_for_tour,
+    normalize_tour_name,
+    sanitize_filename,
+    save_tour,
+    write_uploaded_file,
+)
+
+
+def register_routes(app: Flask) -> None:
+    """Register HTTP routes on the Flask application instance."""
+
+    current_tour = get_empty_tour()
+    current_tour_name = normalize_tour_name(None)
+    ensure_tour_asset_dirs(current_tour_name)
+
+    def validate_tour_payload(payload: dict) -> str | None:
+        """Return an error string when payload is invalid, else None."""
+        if "scenes" not in payload or not isinstance(payload["scenes"], dict):
+            return "Payload must include a scenes dictionary."
+
+        meta = payload.get("meta", {})
+        start_scene = meta.get("startScene")
+        if start_scene and start_scene not in payload["scenes"]:
+            return "meta.startScene must reference an existing scene."
+        return None
+
+    @app.get("/")
+    def index():
+        """Render the single-page editor and viewer UI."""
+        return render_template("index.html")
+
+    @app.get("/viewer")
+    def viewer_index():
+        """Render read-only local viewer UI for loading saved tours."""
+        return render_template("viewer.html")
+
+    @app.get("/help/new-tour")
+    def new_tour_help():
+        """Render step-by-step instructions for creating a new tour."""
+        return render_template("help_new_tour.html")
+
+    @app.get("/api/tour")
+    def get_tour():
+        """Return current in-memory tour configuration JSON."""
+        return jsonify(current_tour)
+
+    @app.post("/api/tour")
+    def update_tour():
+        """Validate and update in-memory tour JSON payload."""
+        nonlocal current_tour
+        payload = request.get_json(silent=True)
+        if not payload:
+            return jsonify({"error": "Missing JSON payload."}), 400
+
+        error = validate_tour_payload(payload)
+        if error:
+            return jsonify({"error": error}), 400
+
+        current_tour = copy.deepcopy(payload)
+        return jsonify({"ok": True})
+
+    @app.post("/api/tour/save")
+    def save_tour_manually():
+        """Persist the provided tour payload or current in-memory tour to disk."""
+        nonlocal current_tour, current_tour_name
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict) and "name" in body:
+            name = normalize_tour_name(body.get("name"))
+            payload = body.get("tour")
+        else:
+            name = normalize_tour_name(None)
+            payload = body if isinstance(body, dict) and "scenes" in body else None
+
+        if payload is not None:
+            error = validate_tour_payload(payload)
+            if error:
+                return jsonify({"error": error}), 400
+            current_tour = copy.deepcopy(payload)
+
+        saved_name = save_tour(current_tour, name=name)
+        current_tour_name = saved_name
+        ensure_tour_asset_dirs(current_tour_name)
+        return jsonify({"ok": True, "name": saved_name})
+
+    @app.post("/api/tour/load")
+    def load_tour_manually():
+        """Load persisted tour from disk into current in-memory state."""
+        nonlocal current_tour, current_tour_name
+        body = request.get_json(silent=True) or {}
+        name = normalize_tour_name(body.get("name"))
+        try:
+            loaded = load_tour(name=name)
+        except FileNotFoundError:
+            return jsonify({"error": f"No saved tour found for '{name}'."}), 404
+
+        error = validate_tour_payload(loaded)
+        if error:
+            return jsonify({"error": f"Saved tour is invalid: {error}"}), 400
+
+        if current_tour_name != name:
+            clear_graph_cache_for_tour(current_tour_name)
+
+        current_tour_name = name
+        ensure_tour_asset_dirs(current_tour_name)
+        current_tour = copy.deepcopy(loaded)
+        return jsonify({"ok": True, "tour": current_tour, "name": name})
+
+    @app.post("/api/tour/close")
+    def close_tour():
+        """Close the current tour and clear its cached graph files."""
+        nonlocal current_tour, current_tour_name
+        closed_name = current_tour_name
+        removed = clear_graph_cache_for_tour(closed_name)
+        current_tour = get_empty_tour()
+        current_tour_name = normalize_tour_name(None)
+        ensure_tour_asset_dirs(current_tour_name)
+        return jsonify({"ok": True, "closed": closed_name, "removedGraphs": removed, "tour": current_tour})
+
+    @app.get("/api/tours")
+    def list_tours():
+        """Return available saved tour names."""
+        return jsonify({"ok": True, "tours": list_tour_names()})
+
+    @app.get("/api/viewer/tours")
+    def list_tours_for_viewer():
+        """Return available saved tour names for read-only viewer."""
+        return jsonify({"ok": True, "tours": list_tour_names()})
+
+    @app.get("/api/viewer/tour")
+    def get_tour_for_viewer():
+        """Load a saved tour by name for read-only viewer without changing active editor tour."""
+        name_raw = (request.args.get("name") or "").strip()
+        if not name_raw:
+            return jsonify({"error": "name query parameter is required."}), 400
+
+        name = normalize_tour_name(name_raw)
+        try:
+            loaded = load_tour(name=name)
+        except FileNotFoundError:
+            return jsonify({"error": f"No saved tour found for '{name}'."}), 404
+
+        error = validate_tour_payload(loaded)
+        if error:
+            return jsonify({"error": f"Saved tour is invalid: {error}"}), 400
+
+        return jsonify({"ok": True, "tour": loaded, "name": name})
+
+    @app.post("/api/tour/delete")
+    def delete_tour_manually():
+        """Delete a named saved tour file from disk."""
+        body = request.get_json(silent=True) or {}
+        name = normalize_tour_name(body.get("name"))
+        deleted = delete_tour(name)
+        if not deleted:
+            return jsonify({"error": f"No saved tour found for '{name}'."}), 404
+        return jsonify({"ok": True, "name": name})
+
+    @app.post("/api/tour/reset")
+    def reset_tour():
+        """Reset current in-memory tour to an empty payload."""
+        nonlocal current_tour
+        current_tour = get_empty_tour()
+        return jsonify({"ok": True})
+
+    @app.post("/api/publish/github")
+    def publish_to_github():
+        """Export tours and publish static package to a GitHub repository."""
+        body = request.get_json(silent=True) or {}
+
+        publish_all = bool(body.get("all"))
+        owner = str(body.get("owner") or "").strip()
+        repo = str(body.get("repo") or "").strip()
+        branch = str(body.get("branch") or "main").strip() or "main"
+        github_org = bool(body.get("githubOrg"))
+        private_repo = bool(body.get("privateRepo"))
+
+        if not owner:
+            return jsonify({"error": "GitHub owner is required."}), 400
+
+        if publish_all:
+            tours = list_tour_names()
+        else:
+            requested_name = normalize_tour_name(body.get("tour") or current_tour_name)
+            tours = [requested_name] if requested_name else []
+
+        if not tours:
+            return jsonify({"error": "No tours selected for publish."}), 400
+
+        available = set(list_tour_names())
+        missing = [name for name in tours if name not in available]
+        if missing:
+            return jsonify({"error": f"These tours are not saved to disk: {', '.join(missing)}"}), 400
+
+        request_token = str(body.get("githubToken") or "").strip()
+        token = request_token or str(os.getenv("GITHUB_TOKEN") or "").strip()
+        if not token:
+            return jsonify({"error": "Provide a GitHub token in the publish form, or set GITHUB_TOKEN on the server environment."}), 400
+
+        try:
+            exported, repo_name = export_and_publish(
+                tours=tours,
+                owner=owner,
+                token=token,
+                repo=repo,
+                branch=branch,
+                private_repo=private_repo,
+                github_org=github_org,
+            )
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        return jsonify(
+            {
+                "ok": True,
+                "exported": exported,
+                "repo": repo_name,
+                "owner": owner,
+                "branch": branch,
+                "repoUrl": f"https://github.com/{owner}/{repo_name}",
+            }
+        )
+
+    def _upload_image_to_dir(target_dir, path_prefix: str):
+        """Upload image file to the target directory and return response payload."""
+        file = request.files.get("image")
+        if file is None or file.filename is None or file.filename.strip() == "":
+            return jsonify({"error": "No file uploaded."}), 400
+
+        if not is_allowed_image(file.filename):
+            return jsonify({"error": "Only jpg, jpeg, png, webp are allowed."}), 400
+
+        filename = sanitize_filename(file.filename)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = target_dir / filename
+        write_uploaded_file(file, target_path)
+
+        return jsonify(
+            {
+                "ok": True,
+                "path": f"/{path_prefix}/{current_tour_name}/{filename}",
+                "filename": filename,
+                "tour": current_tour_name,
+            }
+        )
+
+    @app.post("/api/upload_360")
+    def upload_panorama_image():
+        """Upload and store 360 panorama image under per-tour 360 directory."""
+        return _upload_image_to_dir(panorama_dir_for_tour(current_tour_name), "images360")
+
+    @app.post("/api/upload_2d")
+    def upload_2d_image():
+        """Upload and store 2D image under per-tour 2D directory."""
+        return _upload_image_to_dir(image_2d_dir_for_tour(current_tour_name), "images2d")
+
+    @app.post("/api/upload")
+    def upload_image_legacy():
+        """Legacy upload endpoint retained for backward compatibility (maps to 360)."""
+        return _upload_image_to_dir(panorama_dir_for_tour(current_tour_name), "images360")
+
+    @app.get("/api/images_360")
+    def list_panorama_images():
+        """Return available 360 panorama filenames for the current tour."""
+        names = list_panorama_images_for_tour(current_tour_name)
+        return jsonify({"ok": True, "images": names, "tour": current_tour_name})
+
+    @app.get("/api/images_2d")
+    def list_2d_images():
+        """Return available 2D image filenames for the current tour."""
+        names = list_2d_images_for_tour(current_tour_name)
+        return jsonify({"ok": True, "images": names, "tour": current_tour_name})
+
+    @app.get("/api/images")
+    def list_images_legacy():
+        """Legacy image listing endpoint retained for compatibility (returns 360 list)."""
+        names = list_panorama_images_for_tour(current_tour_name)
+        return jsonify({"ok": True, "images": names, "tour": current_tour_name})
+
+    @app.post("/api/upload_csv")
+    def upload_csv():
+        """Upload and store CSV data file for graph hotspots."""
+        file = request.files.get("datafile")
+        if file is None or file.filename is None or file.filename.strip() == "":
+            return jsonify({"error": "No CSV file uploaded."}), 400
+
+        if not is_allowed_data_file(file.filename):
+            return jsonify({"error": "Only .csv files are allowed."}), 400
+
+        filename = sanitize_filename(file.filename)
+        data_dir = data_dir_for_tour(current_tour_name)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        target_path = data_dir / filename
+        write_uploaded_file(file, target_path)
+
+        return jsonify(
+            {
+                "ok": True,
+                "filename": filename,
+                "path": f"/static/data/{current_tour_name}/{filename}",
+                "tour": current_tour_name,
+            }
+        )
+
+    @app.get("/api/csvs")
+    def list_csv_files():
+        """Return available CSV filenames in the data directory."""
+        names = list_csvs_for_tour(current_tour_name)
+        return jsonify({"ok": True, "files": names, "tour": current_tour_name})
+
+    @app.get("/api/csv_columns")
+    def get_csv_columns():
+        """Return header columns for a requested CSV file."""
+        csv_name = sanitize_filename((request.args.get("csv") or "").strip())
+        if not csv_name:
+            return jsonify({"error": "csv query parameter is required."}), 400
+        if not is_allowed_data_file(csv_name):
+            return jsonify({"error": "csv must reference a .csv file."}), 400
+
+        csv_path = data_dir_for_tour(current_tour_name) / csv_name
+        if not csv_path.exists():
+            # Backward-compatibility for legacy global CSV files.
+            csv_path = DATA_DIR / csv_name
+        if not csv_path.exists():
+            return jsonify({"error": "CSV file not found."}), 404
+
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.reader(handle)
+            headers = next(reader, [])
+
+        return jsonify({"ok": True, "csv": csv_name, "columns": headers, "tour": current_tour_name})
+
+    @app.get("/api/graph")
+    def get_graph():
+        """Generate and return URL for graph image derived from CSV query params."""
+        csv_name = (request.args.get("csv") or "").strip()
+        x_col = (request.args.get("x") or "").strip()
+        y_cols = [value.strip() for value in request.args.getlist("y") if value and value.strip()]
+        if not y_cols:
+            legacy_y = (request.args.get("y") or "").strip()
+            if legacy_y:
+                y_cols = [legacy_y]
+        subplots_raw = (request.args.get("subplots") or "").strip()
+        y_label = (request.args.get("yLabel") or "").strip()
+        y_unit = (request.args.get("yUnit") or "").strip()
+        subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
+        inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
+        animation_speed_raw = (request.args.get("animationSpeed") or "1").strip()
+        renderer = (request.args.get("renderer") or "auto").strip().lower()
+        size = (request.args.get("size") or "m").strip().lower()
+        animate = (request.args.get("animate") or "false").lower() in {"1", "true", "yes"}
+
+        try:
+            animation_speed = float(animation_speed_raw)
+        except ValueError:
+            return jsonify({"error": "animationSpeed must be a positive number."}), 400
+        if animation_speed <= 0:
+            return jsonify({"error": "animationSpeed must be greater than zero."}), 400
+
+        if subplots_raw:
+            try:
+                subplot_count = int(subplots_raw)
+            except ValueError:
+                return jsonify({"error": "subplots must be an integer between 1 and 3."}), 400
+            if subplot_count < 1 or subplot_count > 3:
+                return jsonify({"error": "subplots must be between 1 and 3."}), 400
+            if len(y_cols) != subplot_count:
+                return jsonify({"error": "Number of y columns must match subplot count."}), 400
+            if subplot_types and len(subplot_types) != subplot_count:
+                return jsonify({"error": "Number of plotType values must match subplot count."}), 400
+            if inverted_bars and len(inverted_bars) != subplot_count:
+                return jsonify({"error": "Number of invertBar values must match subplot count."}), 400
+
+        try:
+            graph_filename = generate_graph_asset(
+                csv_name,
+                x_col,
+                y_cols,
+                animate,
+                y_label=y_label,
+                y_unit=y_unit,
+                subplot_types=subplot_types,
+                inverted_bars=inverted_bars,
+                animation_speed=animation_speed,
+                renderer=renderer,
+                size=size,
+                tour_name=current_tour_name,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            return jsonify({"error": "Graph generation failed."}), 500
+
+        return jsonify(
+            {
+                "ok": True,
+                "path": f"/graphs/{current_tour_name}/{graph_filename}",
+                "animated": animate,
+                "tour": current_tour_name,
+            }
+        )
+
+    @app.get("/api/viewer/graph")
+    def get_graph_for_viewer():
+        """Generate and return URL for graph image in read-only viewer for a selected tour."""
+        tour_name_raw = (request.args.get("name") or "").strip()
+        if not tour_name_raw:
+            return jsonify({"error": "name query parameter is required."}), 400
+        tour_name = normalize_tour_name(tour_name_raw)
+
+        csv_name = (request.args.get("csv") or "").strip()
+        x_col = (request.args.get("x") or "").strip()
+        y_cols = [value.strip() for value in request.args.getlist("y") if value and value.strip()]
+        if not y_cols:
+            legacy_y = (request.args.get("y") or "").strip()
+            if legacy_y:
+                y_cols = [legacy_y]
+        subplots_raw = (request.args.get("subplots") or "").strip()
+        y_label = (request.args.get("yLabel") or "").strip()
+        y_unit = (request.args.get("yUnit") or "").strip()
+        subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
+        inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
+        animation_speed_raw = (request.args.get("animationSpeed") or "1").strip()
+        renderer = (request.args.get("renderer") or "auto").strip().lower()
+        size = (request.args.get("size") or "m").strip().lower()
+        animate = (request.args.get("animate") or "false").lower() in {"1", "true", "yes"}
+
+        try:
+            animation_speed = float(animation_speed_raw)
+        except ValueError:
+            return jsonify({"error": "animationSpeed must be a positive number."}), 400
+        if animation_speed <= 0:
+            return jsonify({"error": "animationSpeed must be greater than zero."}), 400
+
+        if subplots_raw:
+            try:
+                subplot_count = int(subplots_raw)
+            except ValueError:
+                return jsonify({"error": "subplots must be an integer between 1 and 3."}), 400
+            if subplot_count < 1 or subplot_count > 3:
+                return jsonify({"error": "subplots must be between 1 and 3."}), 400
+            if len(y_cols) != subplot_count:
+                return jsonify({"error": "Number of y columns must match subplot count."}), 400
+            if subplot_types and len(subplot_types) != subplot_count:
+                return jsonify({"error": "Number of plotType values must match subplot count."}), 400
+            if inverted_bars and len(inverted_bars) != subplot_count:
+                return jsonify({"error": "Number of invertBar values must match subplot count."}), 400
+
+        try:
+            graph_filename = generate_graph_asset(
+                csv_name,
+                x_col,
+                y_cols,
+                animate,
+                y_label=y_label,
+                y_unit=y_unit,
+                subplot_types=subplot_types,
+                inverted_bars=inverted_bars,
+                animation_speed=animation_speed,
+                renderer=renderer,
+                size=size,
+                tour_name=tour_name,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            return jsonify({"error": "Graph generation failed."}), 500
+
+        return jsonify(
+            {
+                "ok": True,
+                "path": f"/graphs/{tour_name}/{graph_filename}",
+                "animated": animate,
+                "tour": tour_name,
+            }
+        )
+
+    @app.get("/images360/<path:filename>")
+    def get_panorama_image(filename: str):
+        """Serve 360 panorama image files from static 360 image directory."""
+        return send_from_directory(IMAGES_360_DIR, filename)
+
+    @app.get("/images2d/<path:filename>")
+    def get_2d_image(filename: str):
+        """Serve 2D image files from static 2D image directory."""
+        return send_from_directory(IMAGES_2D_DIR, filename)
+
+    @app.get("/images/<path:filename>")
+    def get_image_legacy(filename: str):
+        """Legacy image route: attempt 360 first, then 2D."""
+        panorama_candidate = IMAGES_360_DIR / filename
+        if panorama_candidate.exists() and panorama_candidate.is_file():
+            return send_from_directory(IMAGES_360_DIR, filename)
+
+        image_2d_candidate = IMAGES_2D_DIR / filename
+        if image_2d_candidate.exists() and image_2d_candidate.is_file():
+            return send_from_directory(IMAGES_2D_DIR, filename)
+
+        legacy_candidate = LEGACY_IMAGES_DIR / filename
+        if legacy_candidate.exists() and legacy_candidate.is_file():
+            return send_from_directory(LEGACY_IMAGES_DIR, filename)
+
+        return jsonify({"error": "Image not found."}), 404
+
+    @app.get("/graphs/<path:filename>")
+    def get_graph_image(filename: str):
+        """Serve generated graph image files from graph directory."""
+        return send_from_directory(GRAPHS_DIR, filename)

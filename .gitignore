@@ -1,0 +1,58 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging and build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checker / linter caches
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+
+# Flask runtime artifacts
+instance/
+
+# Project runtime/generated assets
+tour_data/*.json
+!tour_data/demo.json
+static/data/**
+!static/data/demo/
+!static/data/demo/**
+static/graphs/**
+!static/graphs/demo/
+!static/graphs/demo/**
+static/images_360/**
+!static/images_360/demo/
+!static/images_360/demo/**
+static/images_2d/**
+!static/images_2d/demo/
+!static/images_2d/demo/**
+static/images/**
+!static/images/demo/
+!static/images/demo/**

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PanoCoTA Tour Viewer</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
+    />
+    <link rel="stylesheet" href="viewer.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="panel">
+        <h1>PanoCoTA Viewer</h1>
+        <p class="subtitle">Static viewer for published tours</p>
+
+        <section class="section-block">
+          <h2>Tour</h2>
+          <label>
+            Published Tours
+            <select id="tour-select"></select>
+          </label>
+          <button id="refresh-tours">Refresh List</button>
+          <button id="load-tour">Load Tour</button>
+          <p id="status" class="micro"></p>
+        </section>
+      </aside>
+
+      <main class="viewer-wrap">
+        <div id="viewer"></div>
+      </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
+    <script src="viewer.js"></script>
+  </body>
+</html>

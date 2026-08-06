@@ -1,0 +1,454 @@
+/* Read This First:
+  1) :root stores color tokens so the whole UI can be themed from one place.
+  2) body sets base typography plus gradient/radial background atmosphere.
+  3) .layout creates desktop split view: sidebar controls + panorama viewer.
+  4) .panel and .section-block style the editor dashboard cards.
+  5) input/select/button rules keep form controls visually consistent.
+  6) #viewer defines the canvas container size and clipping.
+  7) .hotspot-* classes style custom hotspot marker injected from app.js.
+  8) .prompt-card is hidden by default and revealed on hotspot hover.
+  9) @keyframes ping animates pulsing guidance around hotspot dots.
+  10) @media block switches to mobile-friendly stacked layout. */
+
+/* Theme tokens used across the UI for color consistency. */
+:root {
+  --bg-a: #f4f8ef;
+  --bg-b: #cfe6df;
+  --panel: #172119;
+  --panel-soft: #223129;
+  --text: #ebf6e8;
+  --surface-text: #ebf6e8;
+  --field-bg: rgba(255, 255, 255, 0.08);
+  --field-fg: #ebf6e8;
+  --menu-bg: #e8f1ec;
+  --menu-fg: #18241e;
+  --menu-selected-bg: #1d2b24;
+  --menu-selected-fg: #f4fff8;
+  --accent: #e84855;
+  --accent-soft: #ffd9dd;
+  --danger: #ef6461;
+}
+
+/* Global reset to make sizing predictable. */
+* {
+  box-sizing: border-box;
+}
+
+/* Page background and default type settings. */
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Space Grotesk", sans-serif;
+  background: radial-gradient(circle at 15% 10%, #f8ffd9 0%, transparent 35%),
+    linear-gradient(120deg, var(--bg-a), var(--bg-b));
+  color: var(--text);
+}
+
+/* Desktop: sidebar + viewer columns. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(310px, 360px) 1fr;
+  min-height: 100vh;
+  gap: 14px;
+  padding: 14px;
+}
+
+/* Sidebar panel appearance. */
+.panel {
+  padding: 20px;
+  background: linear-gradient(180deg, var(--panel), var(--panel-soft));
+  height: calc(100vh - 28px);
+  border-radius: 20px;
+  overflow-y: auto;
+}
+
+/* Brand title styling. */
+h1 {
+  font-family: "Bebas Neue", sans-serif;
+  letter-spacing: 1px;
+  font-size: 2.3rem;
+  margin: 0 0 4px;
+}
+
+/* Supporting subtitle under the title. */
+.subtitle {
+  margin: 0 0 18px;
+  opacity: 0.8;
+}
+
+.subtitle-credit {
+  margin: -10px 0 16px;
+  opacity: 0.75;
+  font-size: 0.82rem;
+}
+
+.subtitle-acronym {
+  font-style: normal;
+  font-weight: 700;
+}
+
+.current-tour-name {
+  margin: 4px 0 10px;
+  opacity: 0.92;
+}
+
+#save-tour-new-name-wrap.is-hidden {
+  display: none;
+}
+
+/* Reusable card block for each control section. */
+.section-block {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 14px;
+  backdrop-filter: blur(2px);
+}
+
+/* Section heading style inside cards. */
+.section-block h2 {
+  margin: 2px 0 10px;
+  font-size: 1rem;
+}
+
+/* Stack each form label and its control. */
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+
+#hotspot-y-selects {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.subplot-y-label {
+  margin-bottom: 0;
+}
+
+.subplot-config-row {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.subplot-type-label,
+.subplot-invert-label {
+  margin-bottom: 0;
+}
+
+.subplot-invert-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subplot-invert-label.is-hidden {
+  display: none;
+}
+
+.subplot-invert-label input {
+  width: auto;
+  margin: 0;
+}
+
+.publish-private-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.publish-private-label input {
+  width: auto;
+  margin: 0;
+}
+
+/* Shared base controls for form elements and buttons. */
+input,
+select,
+textarea,
+button {
+  width: 100%;
+  margin-top: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.17);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+/* Input/select visual style in dark panel context. */
+input,
+select,
+textarea {
+  background: var(--field-bg);
+  color: var(--field-fg);
+}
+
+textarea {
+  resize: vertical;
+}
+
+/* Force menu-row contrast for native select dropdowns on Windows browsers. */
+select option {
+  background: var(--menu-bg);
+  color: var(--menu-fg);
+}
+
+/* Keep opened menu options neutral by default, including selected/focused rows. */
+select option:checked,
+select option:focus {
+  background: var(--menu-bg);
+  color: var(--menu-fg);
+}
+
+/* Dark highlight only when hovering an option with the mouse. */
+select option:hover {
+  background: var(--menu-selected-bg);
+  color: var(--menu-selected-fg);
+}
+
+/* Neutral action buttons. */
+button {
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+/* Small hover lift to make controls feel responsive. */
+button:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+/* Primary save action styling. */
+button.primary {
+  background: var(--accent);
+  color: #241700;
+  font-weight: 700;
+}
+
+/* Tiny status text style used in sidebar feedback lines. */
+.micro {
+  margin: 8px 2px 0;
+  font-size: 0.78rem;
+  color: var(--accent-soft);
+}
+
+/* Outer spacing for the viewer area. */
+.viewer-wrap {
+  padding: 0;
+}
+
+/* Panorama canvas container. */
+#viewer {
+  width: 100%;
+  height: calc(100vh - 28px);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
+}
+
+.viewer-empty {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 24px;
+  font-size: 1rem;
+  color: #f4fff6;
+  background: radial-gradient(circle at 20% 20%, rgba(232, 72, 85, 0.22), transparent 45%),
+    linear-gradient(135deg, #0e1510, #1f2b24);
+}
+
+/* Wrapper for custom hotspot content supplied to Pannellum. */
+.hotspot-wrap {
+  --dot-color: #e84855;
+  --dot-ring: rgba(232, 72, 85, 0.65);
+  --prompt-border: rgba(232, 72, 85, 0.6);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+.hotspot-wrap--scene {
+  --dot-color: #3fbdb5;
+  --dot-ring: rgba(63, 189, 181, 0.65);
+  --prompt-border: rgba(63, 189, 181, 0.62);
+}
+
+.hotspot-wrap--graph {
+  --dot-color: #e84855;
+  --dot-ring: rgba(232, 72, 85, 0.65);
+  --prompt-border: rgba(232, 72, 85, 0.6);
+}
+
+.hotspot-wrap--image {
+  --dot-color: #f7b538;
+  --dot-ring: rgba(247, 181, 56, 0.7);
+  --prompt-border: rgba(247, 181, 56, 0.66);
+}
+
+.hotspot-wrap--text {
+  --dot-color: #7ac74f;
+  --dot-ring: rgba(122, 199, 79, 0.7);
+  --prompt-border: rgba(122, 199, 79, 0.66);
+}
+
+/* Keep Pannellum internals present but visually hide default content. */
+.hotspot-host > :not(.hotspot-wrap) {
+  opacity: 0;
+}
+
+/* Remove Pannellum default hotspot ring/background for custom tooltip DOM. */
+.pnlm-hotspot-base {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Pulsing marker that indicates clickable navigation point. */
+.hotspot-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--dot-color);
+  box-shadow: 0 0 0 0 var(--dot-ring);
+  animation: ping 2s infinite;
+}
+
+/* Hover card shown near hotspot with custom prompt message. */
+.prompt-card {
+  position: absolute;
+  left: 34px;
+  top: -14px;
+  min-width: 220px;
+  max-width: 300px;
+  background: rgba(13, 20, 15, 0.92);
+  border: 1px solid var(--prompt-border);
+  border-radius: 10px;
+  padding: 10px 11px;
+  color: #fff9ef;
+  font-size: 0.95rem;
+  transform: translateX(-6px) scale(0.96);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.prompt-card--graph {
+  width: min(90vw, var(--graph-card-width, 860px));
+  max-width: min(90vw, 1200px);
+}
+
+.prompt-card--scene {
+  background: rgba(9, 29, 27, 0.93);
+}
+
+.prompt-card--image {
+  width: min(72vw, 680px);
+  max-width: min(72vw, 680px);
+  background: rgba(36, 26, 7, 0.93);
+}
+
+.prompt-card--text {
+  background: rgba(18, 34, 14, 0.93);
+}
+
+.graph-container {
+  margin-top: 8px;
+  font-size: 0.92rem;
+  color: #ffd9dd;
+}
+
+.prompt-card--image .image-container {
+  color: #ffe7b8;
+}
+
+.image-container {
+  margin-top: 8px;
+}
+
+.image-caption {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: #ffe7b8;
+  white-space: pre-wrap;
+}
+
+.graph-preview {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 76vh;
+  border-radius: 8px;
+  border: 1px solid rgba(232, 72, 85, 0.45);
+  margin-top: 6px;
+  background: #111;
+}
+
+.image-preview {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 68vh;
+  border-radius: 8px;
+  border: 1px solid rgba(232, 72, 85, 0.45);
+  margin-top: 6px;
+  background: #111;
+  object-fit: contain;
+}
+
+/* Reveal animation when user hovers hotspot marker. */
+.hotspot-wrap:hover .prompt-card {
+  opacity: 1;
+  transform: translateX(0) scale(1);
+}
+
+/* Pulse animation for hotspot marker. */
+@keyframes ping {
+  0% {
+    box-shadow: 0 0 0 0 var(--dot-ring);
+  }
+  70% {
+    box-shadow: 0 0 0 11px rgba(0, 0, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
+}
+
+/* Mobile layout: stack controls above viewer and reduce viewer height. */
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0;
+  }
+
+  .panel {
+    height: auto;
+    border-radius: 0;
+  }
+
+  .viewer-wrap {
+    padding-top: 0;
+  }
+
+  #viewer {
+    height: 68vh;
+    border-radius: 0;
+  }
+}
