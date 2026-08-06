@@ -1,13 +1,10 @@
-<table>
-	<tr>
-		<td width="240" valign="middle">
-			<img src="static/branding/panocota_logo.png" alt="PanoCoTA logo" width="220" />
-		</td>
-		<td valign="middle">
-			<h1>PanoCoTA (Panoramic Content and Tours for Academia)</h1>
-		</td>
-	</tr>
-</table>
+<img src="static/branding/panocota_logo.png" alt="PanoCoTA logo" width="220" align="left" />
+
+<h1>PANOCOTA</h1>
+
+<p><strong>Pano</strong>ramic <strong>Co</strong>ntent and <strong>T</strong>ours for <strong>A</strong>cademia</p>
+
+<br clear="left" />
 
 PanoCoTA is a web app for creating interactive 360 tours for academic use.
 
