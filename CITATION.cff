@@ -7,5 +7,6 @@ authors:
     given-names: "Aaron"
 repository-code: "https://github.com/a-j-neill/PanoCOTA"
 url: "https://github.com/a-j-neill/PanoCOTA"
+doi: "10.5281/zenodo.21840894"
 license: "GPL-3.0"
 abstract: "PanoCoTA is a web app for creating interactive 360 tours with graphs, images, and text for scientific communication."

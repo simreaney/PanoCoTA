@@ -6,6 +6,8 @@
 
 By Aaron Neill
 
+DOI: https://doi.org/10.5281/zenodo.21840894
+
 PanoCoTA is a web app for creating interactive 360 tours that include (animated) graphed data, 2D images and free text to aid scientific communication.
 
 This README is a practical step-by-step guide for first use.
