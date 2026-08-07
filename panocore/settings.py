@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-TOUR_DIR = BASE_DIR / "tour_data"
+TOUR_DIR = BASE_DIR / "static" / "tours"
 TOUR_FILE = TOUR_DIR / "tour.json"
 IMAGES_360_DIR = BASE_DIR / "static" / "images_360"
 IMAGES_2D_DIR = BASE_DIR / "static" / "images_2d"

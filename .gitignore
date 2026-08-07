@@ -39,8 +39,8 @@ Thumbs.db
 instance/
 
 # Project runtime/generated assets
-tour_data/*.json
-!tour_data/demo.json
+static/tours/**
+!static/tours/demo.json
 static/data/**
 !static/data/demo/
 !static/data/demo/**
@@ -56,3 +56,11 @@ static/images_2d/**
 static/images/**
 !static/images/demo/
 !static/images/demo/**
+
+# Generated published tour payloads (editor export output)
+gh-pages/published/**
+!gh-pages/published/tours/demo/
+!gh-pages/published/tours/demo/**
+panocore/gh-pages/published/**
+!panocore/gh-pages/published/tours/demo/
+!panocore/gh-pages/published/tours/demo/**

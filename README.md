@@ -93,7 +93,9 @@ Hotspot editing modes:
 - Panorama and 2D images are stored separately per tour.
 - Click the sidebar logo to open a larger popup preview of the logo.
 - Graph hotspots can be static or animated.
+- Graph hotspot animation timing is automatic in the UI and API defaults: target 0.1s per frame, then adjusted to keep one loop between 5s and 10s.
 - Graph preview may downsample large datasets in-editor for responsiveness; exported graphs include full datasets.
+- Graph floating windows use a fixed width for all subplot counts; 3-subplot graphs can scroll vertically when taller than the viewport.
 - Graph cache persists across closing/reopening tours and is auto-cleared only when graph renderer/settings signatures change.
 - Tests are not included yet and will be added later.
 
@@ -113,6 +115,24 @@ This repository now includes a static publishing pipeline for tours.
 
 4. Click Export and Publish.
 
+### Personal Access Token (PAT) Permissions
+
+PanoCoTA uses the GitHub API plus a git push to publish, so your token must allow:
+
+- Repository contents write access (push branch updates).
+- Repository administration write access (set Pages source branch/path).
+- GitHub Pages write access (create/update Pages configuration).
+- Repository metadata read access (repository checks).
+
+If PanoCoTA needs to create a new repository for you, the token also needs repository creation rights for that owner.
+
+Recommended options:
+
+- Classic PAT: `repo` scope is the simplest option and covers publish operations.
+- Fine-grained PAT: grant repository permissions for Contents (Read and write), Administration (Read and write), Pages (Read and write), and Metadata (Read-only), plus repository creation permission if you want auto-create behavior.
+
+If your org restricts token permissions, pre-create the target repository and then publish into that existing repo.
+
 Exports are merged into the existing published tour manifest by default, so publishing a new tour does not remove previously published tours from the viewer list.
 
 5. The export writes a hostable site into the gh-pages folder:
@@ -130,13 +150,36 @@ By default, repo name is auto-generated:
 - one tour: panocota-tour-<tour_name>
 - multiple tours: panocota-tours
 
-7. The publish step also attempts to configure GitHub Pages automatically to serve from the pushed branch root (`/`). This avoids dependency on GitHub Actions runners.
+7. The publish step also attempts to configure GitHub Pages automatically to serve from the pushed branch root (`/`). 
 
 8. If Pages could not be configured automatically, open the target repository settings and set GitHub Pages source to the pushed branch root.
 
-Viewer usage:
-- Open your Pages URL root to load the viewer.
-- Optional direct tour link: ?tour=<tour_name>
+## Viewer Modes
+
+PanoCoTA has two viewer contexts: the local read-only viewer and the published GitHub Pages viewer.
+
+Local viewer (`/viewer`):
+
+- Loads tours from your saved local tours list.
+- Shows the control panel with tour selection, refresh, and manual load actions.
+- Uses hover cards for graph/image/text hotspots.
+
+Published viewer (GitHub Pages root):
+
+- Reads `published/tours.json` and loads tours from `published/tours/<tour_name>/tour.json`.
+- Supports direct linking with `?tour=<tour_name>`.
+
+Single-tour published mode:
+
+- Automatically enabled when `published/tours.json` contains exactly one tour.
+- Hides the sidebar controls and prioritizes the panorama canvas.
+- Still loads the only published tour automatically.
+
+Multi-tour published mode:
+
+- Used when two or more tours are listed in `published/tours.json`.
+- Shows the sidebar controls so users can switch between tours.
+- Updates the URL query parameter (`?tour=...`) to reflect the currently loaded tour.
 
 ## License
 

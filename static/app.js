@@ -1695,7 +1695,7 @@ function setupEvents() {
       return;
     }
 
-    // Scene objects use the same shape as tour_data/tour.json.
+    // Scene objects use the same shape as persisted static/tours/<tour_name>.json.
     tour.scenes[id] = {
       id,
       title,
