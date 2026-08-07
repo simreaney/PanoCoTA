@@ -6,7 +6,7 @@
 
 By Aaron Neill
 
-DOI: https://doi.org/10.5281/zenodo.21840894
+[![DOI](https://zenodo.org/badge/1325412562.svg)](https://doi.org/10.5281/zenodo.21840893)
 
 PanoCoTA is a web app for creating interactive 360 tours that include (animated) graphed data, 2D images and free text to aid scientific communication.
 
