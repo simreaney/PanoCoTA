@@ -1,6 +1,18 @@
 let viewer = null;
 let activeTourName = "";
 let tour = null;
+const SUBPLOT_COLOR_OPTIONS = [
+  "red",
+  "blue",
+  "green",
+  "orange",
+  "purple",
+  "teal",
+  "brown",
+  "black",
+  "gray",
+  "pink",
+];
 
 const el = {
   tourSelect: document.getElementById("tour-select"),
@@ -18,17 +30,33 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(value, max));
 }
 
+function asTruthy(value) {
+  if (value === true || value === 1) {
+    return true;
+  }
+  const text = String(value || "").trim().toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "on";
+}
+
 function positionPromptCard(wrap, prompt) {
   const viewportPadding = 8;
   const gap = 34;
+  const isMediaPrompt =
+    prompt.classList.contains("prompt-card--graph") ||
+    prompt.classList.contains("prompt-card--image");
 
   const wrapRect = wrap.getBoundingClientRect();
   const promptRect = prompt.getBoundingClientRect();
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
+  const viewerRect = document.getElementById("viewer")?.getBoundingClientRect();
 
   let left = gap;
   let top = -14;
+
+  if (isMediaPrompt && viewerRect) {
+    top = (viewerRect.top + (viewerRect.height / 2)) - wrapRect.top - (promptRect.height / 2);
+  }
 
   if (wrapRect.right + gap + promptRect.width > viewportWidth - viewportPadding) {
     left = -(promptRect.width + gap);
@@ -38,8 +66,12 @@ function positionPromptCard(wrap, prompt) {
   const maxLeft = viewportWidth - viewportPadding - wrapRect.left - promptRect.width;
   left = clamp(left, minLeft, maxLeft);
 
-  const minTop = viewportPadding - wrapRect.top;
-  const maxTop = viewportHeight - viewportPadding - wrapRect.top - promptRect.height;
+  const topMinBoundary = viewerRect ? viewerRect.top + viewportPadding : viewportPadding;
+  const topMaxBoundary = viewerRect
+    ? viewerRect.bottom - viewportPadding
+    : viewportHeight - viewportPadding;
+  const minTop = topMinBoundary - wrapRect.top;
+  const maxTop = topMaxBoundary - wrapRect.top - promptRect.height;
   top = clamp(top, minTop, maxTop);
 
   prompt.style.left = `${left}px`;
@@ -76,12 +108,26 @@ function createHotspotDom(hotSpotDiv, args) {
 
     if (kind === "graph" && args.graph) {
       prompt.classList.add("prompt-card--graph");
+      const parsedSubplots = Number.parseInt(args.graph.subplots, 10);
+      const yColumnsHint = Array.isArray(args.graph.yColumns)
+        ? args.graph.yColumns.filter((value) => Boolean(String(value || "").trim()))
+        : [args.graph.y].filter((value) => Boolean(String(value || "").trim()));
+      const subplotCountHint = Number.isFinite(parsedSubplots)
+        ? clamp(parsedSubplots, 1, 3)
+        : clamp(yColumnsHint.length || 1, 1, 3);
+      const cardWidth = 700;
+      prompt.style.setProperty("--graph-card-width", `${cardWidth}px`);
       const graphContainer = document.createElement("div");
       graphContainer.className = "graph-container";
       graphContainer.textContent = "Loading graph...";
       prompt.appendChild(graphContainer);
 
       let lastQueryKey = "";
+      const resetGraphPreview = () => {
+        lastQueryKey = "";
+        graphContainer.replaceChildren();
+        graphContainer.textContent = "Loading graph...";
+      };
       wrap.addEventListener("mouseenter", async () => {
         positionPromptCard(wrap, prompt);
 
@@ -91,8 +137,11 @@ function createHotspotDom(hotSpotDiv, args) {
         const subplotTypes = Array.isArray(args.graph.subplotTypes)
           ? args.graph.subplotTypes.map((value) => String(value || "line").trim().toLowerCase())
           : [];
+        const subplotColors = Array.isArray(args.graph.subplotColors)
+          ? args.graph.subplotColors.map((value) => String(value || "").trim().toLowerCase())
+          : [];
         const invertedBars = Array.isArray(args.graph.invertedBars)
-          ? args.graph.invertedBars.map((value) => value === true || value === "true" || value === "1")
+          ? args.graph.invertedBars.map((value) => asTruthy(value))
           : [];
 
         const query = new URLSearchParams({
@@ -100,8 +149,6 @@ function createHotspotDom(hotSpotDiv, args) {
           csv: args.graph.csv || "",
           animate: String(args.graph.animate === true || args.graph.animate === "true"),
         });
-        const speed = Number.parseFloat(args.graph.animationSpeed || "1");
-        query.set("animationSpeed", String(Number.isFinite(speed) ? speed : 1));
 
         const subplots = Number.parseInt(args.graph.subplots, 10);
         const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 3) : clamp(yColumns.length || 1, 1, 3);
@@ -111,6 +158,7 @@ function createHotspotDom(hotSpotDiv, args) {
         });
         for (let idx = 0; idx < subplotCount; idx += 1) {
           query.append("plotType", subplotTypes[idx] || "line");
+          query.append("color", subplotColors[idx] || SUBPLOT_COLOR_OPTIONS[idx % SUBPLOT_COLOR_OPTIONS.length]);
           query.append("invertBar", invertedBars[idx] ? "true" : "false");
         }
         if (args.graph.x) {
@@ -122,8 +170,11 @@ function createHotspotDom(hotSpotDiv, args) {
         if (args.graph.yUnit) {
           query.set("yUnit", args.graph.yUnit);
         }
-        if (args.graph.renderer) {
-          query.set("renderer", args.graph.renderer);
+        const requestedRenderer = String(args.graph.renderer || "").trim().toLowerCase();
+        if (subplotCount > 1) {
+          query.set("renderer", "matplotlib");
+        } else if (requestedRenderer) {
+          query.set("renderer", requestedRenderer);
         }
 
         const queryKey = query.toString();
@@ -155,8 +206,13 @@ function createHotspotDom(hotSpotDiv, args) {
           graphContainer.textContent = "Graph request failed.";
         }
       });
+
+      wrap.addEventListener("mouseleave", () => {
+        resetGraphPreview();
+      });
     } else if (kind === "image" && args.image) {
       prompt.classList.add("prompt-card--image");
+      prompt.style.setProperty("--image-card-width", "680px");
       const imageContainer = document.createElement("div");
       imageContainer.className = "image-container";
 

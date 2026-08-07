@@ -114,11 +114,19 @@ def generate_with_pillow(
     if not frames:
         frames.append(draw_frame(1))
 
+    frame_count = max(len(frames), 1)
+    seconds_per_frame = 0.1
+    target_loop_seconds = frame_count * seconds_per_frame
+    if target_loop_seconds < 5.0:
+        seconds_per_frame = 5.0 / frame_count
+    elif target_loop_seconds > 10.0:
+        seconds_per_frame = 10.0 / frame_count
+
     frames[0].save(
         output_path,
         save_all=True,
         append_images=frames[1:],
-        duration=max(20, int(80 / max(animation_speed, 0.25))),
+        duration=max(20, int(seconds_per_frame * 1000)),
         loop=0,
         format="GIF",
     )

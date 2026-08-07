@@ -96,15 +96,50 @@ button {
 }
 
 .viewer-wrap {
+  position: relative;
   border-radius: 20px;
   overflow: hidden;
   min-height: calc(100vh - 28px);
+}
+
+.viewer-brand {
+  display: none;
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 30;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(18, 28, 22, 0.76);
+  color: #f4fff8;
+  font-family: "Bebas Neue", sans-serif;
+  letter-spacing: 0.9px;
+  font-size: 1.15rem;
+  pointer-events: none;
 }
 
 #viewer {
   width: 100%;
   height: calc(100vh - 28px);
   background: #111;
+}
+
+body.single-tour-mode .layout {
+  grid-template-columns: 1fr;
+}
+
+body.single-tour-mode .panel {
+  display: none;
+}
+
+body.single-tour-mode .viewer-wrap {
+  border: 2px solid rgba(28, 42, 34, 0.72);
+  box-shadow: 0 10px 28px rgba(13, 22, 18, 0.28);
+}
+
+body.single-tour-mode .viewer-brand {
+  display: block;
 }
 
 .viewer-empty {
@@ -194,14 +229,23 @@ button {
 }
 
 .prompt-card--graph {
-  width: min(90vw, 860px);
+  width: min(90vw, var(--graph-card-width, 700px));
   max-width: min(90vw, 1200px);
+  max-height: 82vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
 }
 
 .prompt-card--image {
-  width: min(72vw, 680px);
-  max-width: min(72vw, 680px);
+  width: min(90vw, var(--image-card-width, 680px));
+  max-width: min(90vw, 680px);
   background: rgba(36, 26, 7, 0.93);
+  transform: none;
+  transition: opacity 0.2s ease;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .prompt-card--text {
@@ -209,9 +253,14 @@ button {
 }
 
 .graph-container {
+  width: 100%;
   margin-top: 8px;
   font-size: 0.92rem;
   color: #ffd9dd;
+}
+
+.prompt-card--graph .graph-container {
+  margin-top: 0;
 }
 
 .image-container {
@@ -231,11 +280,13 @@ button {
   width: 100%;
   max-width: 100%;
   height: auto;
-  max-height: 76vh;
   border-radius: 8px;
-  border: 1px solid rgba(232, 72, 85, 0.45);
-  margin-top: 6px;
-  background: #111;
+  border: 0;
+  margin-top: 0;
+  margin-left: auto;
+  margin-right: auto;
+  background: transparent;
+  object-fit: contain;
 }
 
 .image-preview {
@@ -254,6 +305,10 @@ button {
 .hotspot-wrap:hover .prompt-card {
   opacity: 1;
   transform: translateX(0) scale(1);
+}
+
+.hotspot-wrap:hover .prompt-card--image {
+  transform: none;
 }
 
 @keyframes ping {

@@ -34,6 +34,7 @@ let hotspotIdCounter = 0;
 let viewerCursorIndicator = null;
 let placementPointerState = null;
 const graphRequestCache = new Map();
+let publishStatusPollTimer = null;
 const SUBPLOT_COLOR_OPTIONS = [
   { value: "red", label: "Red" },
   { value: "blue", label: "Blue" },
@@ -46,6 +47,8 @@ const SUBPLOT_COLOR_OPTIONS = [
   { value: "gray", label: "Gray" },
   { value: "pink", label: "Pink" },
 ];
+
+const DEFAULT_GRAPH_SECONDS_PER_FRAME = 0.1;
 
 function runWhenIdle(task) {
   if (typeof window.requestIdleCallback === "function") {
@@ -110,7 +113,6 @@ const el = {
   hotspotSubplots: document.getElementById("hotspot-subplots"),
   hotspotYSelects: document.getElementById("hotspot-y-selects"),
   hotspotAnimate: document.getElementById("hotspot-animate"),
-  globalAnimationSpeed: document.getElementById("global-animation-speed"),
   hotspotImageFile: document.getElementById("hotspot-image-file"),
   imageCaptionWrap: document.getElementById("image-caption-wrap"),
   hotspotImageCaption: document.getElementById("hotspot-image-caption"),
@@ -128,7 +130,6 @@ const el = {
   graphSubplotsWrap: document.getElementById("graph-subplots-wrap"),
   graphYWrap: document.getElementById("graph-y-wrap"),
   graphAnimateWrap: document.getElementById("graph-animate-wrap"),
-  graphAnimationSpeedWrap: document.getElementById("graph-animation-speed-wrap"),
   graphUploadWrap: document.getElementById("graph-upload-wrap"),
   imageFileWrap: document.getElementById("image-file-wrap"),
   imageUploadWrap: document.getElementById("image-upload-wrap"),
@@ -327,14 +328,6 @@ function getSelectedSubplotConfigs() {
   });
 }
 
-function getGlobalAnimationSpeed() {
-  const raw = Number.parseFloat(el.globalAnimationSpeed?.value || "1");
-  if (!Number.isFinite(raw)) {
-    return 1;
-  }
-  return clamp(raw, 0.25, 4);
-}
-
 function updateInvertToggleVisibility() {
   return;
 }
@@ -412,10 +405,20 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(value, max));
 }
 
+function getAdaptiveGraphPreviewMaxPoints() {
+  const baselinePoints = 2200;
+  const baselineArea = 1920 * 1080;
+  const currentArea = Math.max(window.innerWidth, 1) * Math.max(window.innerHeight, 1);
+  const areaScale = clamp(currentArea / baselineArea, 0.65, 2.4);
+  return Math.round(clamp(baselinePoints * areaScale, 1400, 5200));
+}
+
 function positionPromptCard(wrap, prompt) {
   const viewportPadding = 8;
   const gap = 34;
-  const isGraphPrompt = prompt.classList.contains("prompt-card--graph");
+  const isMediaPrompt =
+    prompt.classList.contains("prompt-card--graph") ||
+    prompt.classList.contains("prompt-card--image");
 
   const wrapRect = wrap.getBoundingClientRect();
   const promptRect = prompt.getBoundingClientRect();
@@ -426,8 +429,8 @@ function positionPromptCard(wrap, prompt) {
   let left = gap;
   let top = -14;
 
-  if (isGraphPrompt && viewerRect) {
-    // Keep graph windows centered vertically in the panorama for consistent readability.
+  if (isMediaPrompt && viewerRect) {
+    // Keep large media cards centered vertically in the panorama for consistent readability.
     top = (viewerRect.top + (viewerRect.height / 2)) - wrapRect.top - (promptRect.height / 2);
   }
 
@@ -491,13 +494,14 @@ function createHotspotDom(hotSpotDiv, args) {
     // Graph hotspots lazy-load graph image on first hover.
     if (kind === "graph" && args.graph) {
       prompt.classList.add("prompt-card--graph");
-      const sizeToCardWidth = {
-        s: 640,
-        m: 860,
-        l: 1100,
-      };
-      const graphSize = String(args.graph.size || "m").toLowerCase();
-      const cardWidth = sizeToCardWidth[graphSize] || sizeToCardWidth.m;
+      const parsedSubplots = Number.parseInt(args.graph.subplots, 10);
+      const yColumnsHint = Array.isArray(args.graph.yColumns)
+        ? args.graph.yColumns.filter((value) => Boolean(String(value || "").trim()))
+        : [args.graph.y].filter((value) => Boolean(String(value || "").trim()));
+      const subplotCountHint = Number.isFinite(parsedSubplots)
+        ? clamp(parsedSubplots, 1, 3)
+        : clamp(yColumnsHint.length || 1, 1, 3);
+      const cardWidth = 700;
       prompt.style.setProperty("--graph-card-width", `${cardWidth}px`);
 
       const graphContainer = document.createElement("div");
@@ -527,9 +531,8 @@ function createHotspotDom(hotSpotDiv, args) {
         if (graphTour) {
           query.set("tour", graphTour);
         }
-        query.set("maxPoints", "2200");
-        const effectiveSpeed = getGlobalAnimationSpeed();
-        query.set("animationSpeed", String(effectiveSpeed));
+        query.set("maxPoints", String(getAdaptiveGraphPreviewMaxPoints()));
+        query.set("animationSpeed", String(DEFAULT_GRAPH_SECONDS_PER_FRAME));
         const subplots = Number.parseInt(args.graph.subplots, 10);
         const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 3) : clamp(yColumns.length || 1, 1, 3);
         query.set("subplots", String(subplotCount));
@@ -560,6 +563,11 @@ function createHotspotDom(hotSpotDiv, args) {
       };
 
       let lastQueryKey = "";
+      const resetGraphPreview = () => {
+        lastQueryKey = "";
+        graphContainer.replaceChildren();
+        graphContainer.textContent = "Loading graph...";
+      };
       wrap.addEventListener("mouseenter", async () => {
         positionPromptCard(wrap, prompt);
 
@@ -576,7 +584,7 @@ function createHotspotDom(hotSpotDiv, args) {
           const img = document.createElement("img");
           img.className = "graph-preview";
           img.alt = "Generated timeseries graph";
-          img.src = body.path;
+          img.src = `${body.path}?t=${Date.now()}`;
           img.addEventListener("load", () => {
             positionPromptCard(wrap, prompt);
           });
@@ -599,6 +607,10 @@ function createHotspotDom(hotSpotDiv, args) {
         }
       });
 
+      wrap.addEventListener("mouseleave", () => {
+        resetGraphPreview();
+      });
+
       runWhenIdle(() => {
         const queryKey = buildGraphQuery();
         if (!queryKey) {
@@ -610,6 +622,7 @@ function createHotspotDom(hotSpotDiv, args) {
       });
     } else if (kind === "image" && args.image) {
       prompt.classList.add("prompt-card--image");
+      prompt.style.setProperty("--image-card-width", "680px");
       const imageContainer = document.createElement("div");
       imageContainer.className = "image-container";
 
@@ -921,7 +934,7 @@ function buildHotspotEntry(source, pitch, yaw) {
     });
     const invertedBars = subplotConfigs.map((item) => Boolean(item.invertBar));
     const animate = el.hotspotAnimate.value === "true";
-    const animationSpeed = getGlobalAnimationSpeed();
+    const animationSpeed = DEFAULT_GRAPH_SECONDS_PER_FRAME;
 
     if (!csv || yColumns.length !== subplotCount || subplotTypes.length !== subplotCount) {
       throw new Error("Graph hotspots require CSV plus one Y column per subplot.");
@@ -1407,6 +1420,56 @@ function setPublishStatus(message, isError = false) {
   el.publishResult.style.color = isError ? "#ffd0d0" : "#d8ffe0";
 }
 
+function clearPublishStatusPollTimer() {
+  if (publishStatusPollTimer !== null) {
+    window.clearInterval(publishStatusPollTimer);
+    publishStatusPollTimer = null;
+  }
+}
+
+async function pollPublishJob(statusUrl) {
+  clearPublishStatusPollTimer();
+
+  const pollOnce = async () => {
+    const response = await fetch(statusUrl);
+    const body = await response.json();
+    if (!response.ok || !body.ok) {
+      throw new Error(body.error || "Failed to read publish progress.");
+    }
+
+    const percent = Number.isFinite(Number(body.progress)) ? Math.max(0, Math.min(100, Number(body.progress))) : 0;
+    const message = String(body.message || "Publishing...").trim();
+    setPublishStatus(`Publishing static package to GitHub... ${percent}% - ${message}`);
+
+    if (body.status === "completed") {
+      clearPublishStatusPollTimer();
+      return { done: true, body };
+    }
+    if (body.status === "failed") {
+      clearPublishStatusPollTimer();
+      throw new Error(body.error || "Publish failed.");
+    }
+    return { done: false, body };
+  };
+
+  const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+  while (true) {
+    try {
+      const result = await pollOnce();
+      if (result.done) {
+        clearPublishStatusPollTimer();
+        return result.body;
+      }
+    } catch (error) {
+      clearPublishStatusPollTimer();
+      throw error;
+    }
+
+    await sleep(1000);
+  }
+}
+
 function toggleViewerPlacement() {
   const source = getActiveViewerSceneId();
   if (!tour.scenes[source]) {
@@ -1540,13 +1603,6 @@ function setupEvents() {
   });
 
   el.hotspotKind.addEventListener("change", updateHotspotModeUI);
-  el.globalAnimationSpeed.addEventListener("change", () => {
-    if (viewer) {
-      const activeScene = viewer.getScene();
-      renderViewer(activeScene || null);
-    }
-    setStatus("Global graph animation speed updated.");
-  });
   el.hotspotSubplots.addEventListener("change", () => {
     const existing = getSelectedSubplotConfigs();
     renderSubplotConfigRows(existing);
@@ -1947,6 +2003,7 @@ function setupEvents() {
     }
 
     setPublishStatus("Publishing static package to GitHub...");
+    el.publishTourButton.disabled = true;
 
     try {
       const response = await fetch("/api/publish/github", {
@@ -1972,14 +2029,35 @@ function setupEvents() {
         return;
       }
 
+      if (response.status === 202 && body.jobId && body.statusUrl) {
+        const finalJob = await pollPublishJob(body.statusUrl);
+        const result = finalJob.result || {};
+        const tours = Array.isArray(result.exported) ? result.exported.join(", ") : "";
+        const destination = result.pagesUrl || result.repoUrl || `${owner}/${result.repo || body.repo || ""}`;
+        let publishMessage = `Published ${tours} to ${destination}.`;
+        if (result.pagesWarning) {
+          publishMessage += ` ${result.pagesWarning}`;
+        }
+        setPublishStatus(publishMessage, false);
+        setStatus("GitHub publish completed.");
+        return;
+      }
+
       const tours = Array.isArray(body.exported) ? body.exported.join(", ") : "";
-      setPublishStatus(`Published ${tours} to ${body.repoUrl || `${owner}/${body.repo}`}.`);
+      const destination = body.pagesUrl || body.repoUrl || `${owner}/${body.repo}`;
+      let publishMessage = `Published ${tours} to ${destination}.`;
+      if (body.pagesWarning) {
+        publishMessage += ` ${body.pagesWarning}`;
+      }
+      setPublishStatus(publishMessage, false);
       setStatus("GitHub publish completed.");
     } catch (_error) {
       setPublishStatus("Publish request failed.", true);
     } finally {
       // Do not keep tokens in the form after a request completes.
       el.publishToken.value = "";
+      el.publishTourButton.disabled = false;
+      clearPublishStatusPollTimer();
     }
   });
 }

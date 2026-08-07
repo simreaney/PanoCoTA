@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import csv
 import os
+import threading
+import uuid
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
@@ -46,6 +48,8 @@ def register_routes(app: Flask) -> None:
     current_tour = get_empty_tour()
     current_tour_name = normalize_tour_name(None)
     ensure_tour_asset_dirs(current_tour_name)
+    publish_jobs: dict[str, dict] = {}
+    publish_jobs_lock = threading.Lock()
 
     def validate_tour_payload(payload: dict) -> str | None:
         """Return an error string when payload is invalid, else None."""
@@ -76,6 +80,51 @@ def register_routes(app: Flask) -> None:
         if requested:
             return normalize_tour_name(requested)
         return normalize_tour_name(default or current_tour_name)
+
+    def _set_publish_job(job_id: str, **updates) -> dict:
+        with publish_jobs_lock:
+            job = publish_jobs.setdefault(job_id, {"status": "queued", "progress": 0, "message": "Queued."})
+            job.update(updates)
+            return copy.deepcopy(job)
+
+    def _get_publish_job(job_id: str) -> dict | None:
+        with publish_jobs_lock:
+            job = publish_jobs.get(job_id)
+            return copy.deepcopy(job) if job is not None else None
+
+    def _publish_worker(job_id: str, payload: dict) -> None:
+        def _progress(percent: int, message: str) -> None:
+            _set_publish_job(job_id, status="running", progress=int(percent), message=message)
+
+        try:
+            _set_publish_job(job_id, status="running", progress=0, message="Starting publish...")
+            exported, repo_name, pages_url, pages_warning = export_and_publish(
+                tours=payload["tours"],
+                owner=payload["owner"],
+                token=payload["token"],
+                repo=payload["repo"],
+                branch=payload["branch"],
+                private_repo=payload["private_repo"],
+                github_org=payload["github_org"],
+                progress=_progress,
+            )
+            _set_publish_job(
+                job_id,
+                status="completed",
+                progress=100,
+                message="Publish completed.",
+                result={
+                    "exported": exported,
+                    "repo": repo_name,
+                    "owner": payload["owner"],
+                    "branch": payload["branch"],
+                    "repoUrl": f"https://github.com/{payload['owner']}/{repo_name}",
+                    "pagesUrl": pages_url,
+                    "pagesWarning": pages_warning,
+                },
+            )
+        except Exception as exc:
+            _set_publish_job(job_id, status="failed", progress=100, message="Publish failed.", error=str(exc))
 
     @app.get("/")
     def index():
@@ -255,29 +304,30 @@ def register_routes(app: Flask) -> None:
         if not token:
             return jsonify({"error": "Provide a GitHub token in the publish form, or set GITHUB_TOKEN on the server environment."}), 400
 
-        try:
-            exported, repo_name = export_and_publish(
-                tours=tours,
-                owner=owner,
-                token=token,
-                repo=repo,
-                branch=branch,
-                private_repo=private_repo,
-                github_org=github_org,
-            )
-        except Exception as exc:
-            return jsonify({"error": str(exc)}), 500
+        job_id = uuid.uuid4().hex
+        _set_publish_job(job_id, status="queued", progress=0, message="Queued.")
 
-        return jsonify(
-            {
-                "ok": True,
-                "exported": exported,
-                "repo": repo_name,
-                "owner": owner,
-                "branch": branch,
-                "repoUrl": f"https://github.com/{owner}/{repo_name}",
-            }
-        )
+        thread_payload = {
+            "tours": tours,
+            "owner": owner,
+            "token": token,
+            "repo": repo,
+            "branch": branch,
+            "private_repo": private_repo,
+            "github_org": github_org,
+        }
+        thread = threading.Thread(target=_publish_worker, args=(job_id, thread_payload), daemon=True)
+        thread.start()
+
+        return jsonify({"ok": True, "jobId": job_id, "statusUrl": f"/api/publish/github/status/{job_id}"}), 202
+
+    @app.get("/api/publish/github/status/<job_id>")
+    def publish_github_status(job_id: str):
+        """Return the current status for a background GitHub publish job."""
+        job = _get_publish_job(job_id)
+        if job is None:
+            return jsonify({"error": "Unknown publish job."}), 404
+        return jsonify({"ok": True, "jobId": job_id, **job})
 
     def _upload_image_to_dir(target_dir_resolver, path_prefix: str):
         """Upload image file into the requested tour directory and return response payload."""
@@ -413,7 +463,7 @@ def register_routes(app: Flask) -> None:
         subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
         subplot_colors = [value.strip().lower() for value in request.args.getlist("color") if value is not None]
         inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
-        animation_speed_raw = (request.args.get("animationSpeed") or "1").strip()
+        animation_speed_raw = (request.args.get("animationSpeed") or "0.1").strip()
         max_points_raw = (request.args.get("maxPoints") or "").strip()
         renderer = (request.args.get("renderer") or "auto").strip().lower()
         size = (request.args.get("size") or "m").strip().lower()
@@ -509,7 +559,7 @@ def register_routes(app: Flask) -> None:
         subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
         subplot_colors = [value.strip().lower() for value in request.args.getlist("color") if value is not None]
         inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
-        animation_speed_raw = (request.args.get("animationSpeed") or "1").strip()
+        animation_speed_raw = (request.args.get("animationSpeed") or "0.1").strip()
         max_points_raw = (request.args.get("maxPoints") or "").strip()
         renderer = (request.args.get("renderer") or "auto").strip().lower()
         size = (request.args.get("size") or "m").strip().lower()

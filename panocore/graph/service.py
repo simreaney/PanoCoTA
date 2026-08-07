@@ -87,14 +87,14 @@ def _normalize_size(size: str | None) -> str:
 
 
 def _normalize_animation_speed(animation_speed: float | int | str | None) -> float:
-    """Normalize animation speed multiplier to a safe positive range."""
+    """Normalize animation seconds-per-frame input to a safe positive range."""
     try:
-        value = float(animation_speed if animation_speed is not None else 1.0)
+        value = float(animation_speed if animation_speed is not None else 0.1)
     except (TypeError, ValueError):
         raise ValueError("animationSpeed must be a positive number.")
     if value <= 0:
         raise ValueError("animationSpeed must be greater than zero.")
-    return max(0.25, min(4.0, value))
+    return max(0.001, min(30.0, value))
 
 
 def _normalize_max_points(max_points: int | str | None) -> int | None:
@@ -112,6 +112,38 @@ def _normalize_max_points(max_points: int | str | None) -> int | None:
         return None
     if parsed < 10:
         raise ValueError("maxPoints must be an integer greater than 10.")
+    return parsed
+
+
+def _normalize_max_animation_frames(max_animation_frames: int | str | None) -> int | None:
+    """Normalize optional animation frame cap; None disables frame decimation."""
+    if max_animation_frames is None:
+        return None
+    text = str(max_animation_frames).strip()
+    if not text:
+        return None
+    try:
+        parsed = int(text)
+    except ValueError:
+        raise ValueError("maxAnimationFrames must be a positive integer.")
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _normalize_animation_loop_count(animation_loop_count: int | str | None) -> int:
+    """Normalize GIF animation loop count (0 means infinite looping)."""
+    if animation_loop_count is None:
+        return 0
+    text = str(animation_loop_count).strip()
+    if not text:
+        return 0
+    try:
+        parsed = int(text)
+    except ValueError:
+        raise ValueError("animationLoopCount must be a non-negative integer.")
+    if parsed < 0:
+        raise ValueError("animationLoopCount must be a non-negative integer.")
     return parsed
 
 
@@ -202,12 +234,15 @@ def _build_graph_filename(
     renderer: str,
     size: str,
     max_points: int | None,
+    max_animation_frames: int | None,
+    animation_loop_count: int,
+    animation_time_budget_seconds: float | None,
 ) -> str:
     """Create deterministic graph filename based on CSV and render inputs."""
     seed = (
         f"{GRAPH_RENDER_VERSION}|{csv_path.name}|{x_col}|{'|'.join(y_cols)}|"
         f"{'|'.join(subplot_types)}|{'|'.join(subplot_colors)}|{'|'.join(str(flag) for flag in inverted_bars)}|"
-        f"{animate}|{animation_speed:.3f}|{renderer}|{size}|{max_points or 0}|{csv_path.stat().st_mtime_ns}"
+        f"{animate}|{animation_speed:.3f}|{renderer}|{size}|{max_points or 0}|{max_animation_frames or 0}|{animation_loop_count}|{animation_time_budget_seconds or 0}|{csv_path.stat().st_mtime_ns}"
     )
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:18]
     ext = "gif" if animate else "png"
@@ -224,17 +259,24 @@ def _generate_graph_asset_impl(
     subplot_types: list[str] | None = None,
     subplot_colors: list[str] | None = None,
     inverted_bars: list[bool | str | int] | None = None,
-    animation_speed: float | int | str | None = 1.0,
+    animation_speed: float | int | str | None = 0.1,
     renderer: str = "auto",
     size: str = "m",
     tour_name: str = "tour",
     max_points: int | str | None = None,
+    max_animation_frames: int | str | None = 180,
+    animation_loop_count: int | str | None = 0,
+    animation_time_budget_seconds: float | int | str | None = None,
+    force_regenerate: bool = False,
 ) -> tuple[str, bool, int, int]:
     """Generate graph asset and return filename plus preview sampling metadata."""
     safe_csv, safe_x, safe_y_cols, animate = _clean_graph_inputs(csv_name, x_col, y_cols, animate)
     renderer = (renderer or "auto").strip().lower()
     size = _normalize_size(size)
     max_points = _normalize_max_points(max_points)
+    max_animation_frames = _normalize_max_animation_frames(max_animation_frames)
+    animation_loop_count = _normalize_animation_loop_count(animation_loop_count)
+    animation_time_budget_seconds = None if animation_time_budget_seconds is None else float(animation_time_budget_seconds)
     animation_speed = _normalize_animation_speed(animation_speed)
     if renderer not in {"auto", "matplotlib", "pillow"}:
         raise ValueError("renderer must be one of: auto, matplotlib, pillow")
@@ -266,6 +308,9 @@ def _generate_graph_asset_impl(
         renderer,
         size,
         max_points,
+        max_animation_frames,
+        animation_loop_count,
+        animation_time_budget_seconds,
     )
     graph_dir = graph_dir_for_tour(tour_name)
     graph_dir.mkdir(parents=True, exist_ok=True)
@@ -275,7 +320,7 @@ def _generate_graph_asset_impl(
     original_points = 0
     plotted_points = 0
 
-    if output_path.exists():
+    if output_path.exists() and not force_regenerate:
         fields, rows = load_csv_rows(csv_path)
         x_values_existing, _, _, _ = extract_multi_series(fields, rows, safe_x, safe_y_cols)
         original_points = len(x_values_existing)
@@ -321,6 +366,9 @@ def _generate_graph_asset_impl(
                 animate,
                 animation_speed,
                 size,
+                max_animation_frames,
+                animation_loop_count,
+                animation_time_budget_seconds,
             )
             return graph_filename, sampled, original_points, plotted_points
         except ValueError:
@@ -341,6 +389,9 @@ def _generate_graph_asset_impl(
                 animate,
                 animation_speed,
                 size,
+                max_animation_frames,
+                animation_loop_count,
+                animation_time_budget_seconds,
             )
             return graph_filename, sampled, original_points, plotted_points
         except ValueError:
@@ -380,11 +431,15 @@ def generate_graph_asset(
     subplot_types: list[str] | None = None,
     subplot_colors: list[str] | None = None,
     inverted_bars: list[bool | str | int] | None = None,
-    animation_speed: float | int | str | None = 1.0,
+    animation_speed: float | int | str | None = 0.1,
     renderer: str = "auto",
     size: str = "m",
     tour_name: str = "tour",
     max_points: int | str | None = None,
+    max_animation_frames: int | str | None = 180,
+    animation_loop_count: int | str | None = 0,
+    animation_time_budget_seconds: float | int | str | None = None,
+    force_regenerate: bool = False,
 ) -> str:
     """Generate graph asset and return filename of cached/created image."""
     graph_filename, _, _, _ = _generate_graph_asset_impl(
@@ -402,6 +457,10 @@ def generate_graph_asset(
         size,
         tour_name,
         max_points,
+        max_animation_frames,
+        animation_loop_count,
+        animation_time_budget_seconds,
+        force_regenerate,
     )
     return graph_filename
 
@@ -416,11 +475,15 @@ def generate_graph_asset_with_info(
     subplot_types: list[str] | None = None,
     subplot_colors: list[str] | None = None,
     inverted_bars: list[bool | str | int] | None = None,
-    animation_speed: float | int | str | None = 1.0,
+    animation_speed: float | int | str | None = 0.1,
     renderer: str = "auto",
     size: str = "m",
     tour_name: str = "tour",
     max_points: int | str | None = None,
+    max_animation_frames: int | str | None = 180,
+    animation_loop_count: int | str | None = 0,
+    animation_time_budget_seconds: float | int | str | None = None,
+    force_regenerate: bool = False,
 ) -> dict:
     """Generate graph asset and return filename plus preview sampling metadata."""
     graph_filename, sampled, original_points, plotted_points = _generate_graph_asset_impl(
@@ -438,6 +501,10 @@ def generate_graph_asset_with_info(
         size,
         tour_name,
         max_points,
+        max_animation_frames,
+        animation_loop_count,
+        animation_time_budget_seconds,
+        force_regenerate,
     )
     return {
         "filename": graph_filename,

@@ -1,0 +1,133 @@
+{
+  "meta": {
+    "name": "Untitled Tour",
+    "startScene": "Lake Victoria"
+  },
+  "scenes": {
+    "Lake Victoria": {
+      "hotSpots": [
+        {
+          "id": "hotspot-11",
+          "kind": "text",
+          "pitch": -3.32,
+          "prompt": "This guy is on a boat. Where is he going?",
+          "text": "Boat",
+          "yaw": -55.46
+        },
+        {
+          "id": "hotspot-12",
+          "image": {
+            "caption": "Water hyacinth is an invasive species affecting the ecosystem of the lake as well as human activities relating to fishing and transportation",
+            "file": "LV_WaterHyacinth.jpg",
+            "path": "published/tours/lv_test/images2d/LV_WaterHyacinth.jpg"
+          },
+          "kind": "image",
+          "pitch": -1.06,
+          "prompt": "Boat",
+          "text": "Boat",
+          "yaw": -89.7
+        },
+        {
+          "id": "hotspot-13",
+          "kind": "scene",
+          "pitch": 3.61,
+          "prompt": "Go to Tea Plantation",
+          "targetScene": "Tea Plantation",
+          "text": "Go to Tea Plantation",
+          "yaw": 14.06
+        }
+      ],
+      "id": "Lake Victoria",
+      "panorama": "published/tours/lv_test/images360/LV_360-2.jpg",
+      "title": "Lake Victoria"
+    },
+    "Tea Plantation": {
+      "hotSpots": [
+        {
+          "graph": {
+            "animate": true,
+            "animationSpeed": 1,
+            "csv": "kenya_data.csv",
+            "invertedBars": [
+              true,
+              false,
+              false
+            ],
+            "size": "m",
+            "subplotColors": [
+              "black",
+              "blue",
+              "red"
+            ],
+            "subplotTypes": [
+              "line",
+              "line",
+              "scatter"
+            ],
+            "subplots": 3,
+            "x": "Datetime",
+            "y": "Precip",
+            "yColumns": [
+              "Precip",
+              "Discharge",
+              "NO3-N"
+            ],
+            "path": "published/tours/lv_test/graphs/graph_805748149c55afde3b.gif"
+          },
+          "id": "hotspot-14",
+          "kind": "graph",
+          "pitch": -8.71,
+          "prompt": "Tea plantation water quality",
+          "text": "Tea plantation water quality",
+          "yaw": 34.61
+        },
+        {
+          "id": "hotspot-15",
+          "kind": "scene",
+          "pitch": -0.56,
+          "prompt": "Return to Lake Victoria",
+          "targetScene": "Lake Victoria",
+          "text": "Return to Lake Victoria",
+          "yaw": 113.35
+        },
+        {
+          "kind": "graph",
+          "pitch": 5.46,
+          "yaw": -34.91,
+          "text": "View graphed data",
+          "prompt": "View graphed data",
+          "graph": {
+            "csv": "kenya_data.csv",
+            "x": "Datetime",
+            "y": "Precip",
+            "yColumns": [
+              "Precip",
+              "Discharge"
+            ],
+            "subplots": 2,
+            "subplotTypes": [
+              "bar",
+              "line"
+            ],
+            "subplotColors": [
+              "black",
+              "blue"
+            ],
+            "invertedBars": [
+              true,
+              false
+            ],
+            "animate": true,
+            "animationSpeed": 1,
+            "size": "m",
+            "path": "published/tours/lv_test/graphs/graph_1ea6eab3039e035886.gif"
+          },
+          "id": "hotspot-16"
+        }
+      ],
+      "id": "Tea Plantation",
+      "panorama": "published/tours/lv_test/images360/TeaPlant_360.jpg",
+      "title": "Tea Plantation"
+    }
+  }
+}

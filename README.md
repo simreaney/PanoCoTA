@@ -130,9 +130,9 @@ By default, repo name is auto-generated:
 - one tour: panocota-tour-<tour_name>
 - multiple tours: panocota-tours
 
-7. Commit and push changes in this repo if you want to keep local export artifacts under version control. The included workflow .github/workflows/deploy-pages.yml deploys gh-pages/ to GitHub Pages for this repo.
+7. The publish step also attempts to configure GitHub Pages automatically to serve from the pushed branch root (`/`). This avoids dependency on GitHub Actions runners.
 
-8. In the target hosting repository settings, enable GitHub Pages for the pushed branch.
+8. If Pages could not be configured automatically, open the target repository settings and set GitHub Pages source to the pushed branch root.
 
 Viewer usage:
 - Open your Pages URL root to load the viewer.

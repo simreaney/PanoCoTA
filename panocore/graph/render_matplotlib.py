@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from time import perf_counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,59 @@ def _compute_bar_widths(x_values: list) -> list[float]:
     return widths
 
 
+def _enforce_min_visible_bar_widths(
+    x_values: list,
+    widths: list[float],
+    fig_width_inches: float,
+    dpi: int,
+    min_pixels: float = 1.4,
+) -> list[float]:
+    """Ensure bars are at least a few screen pixels wide even for dense full-data renders."""
+    if not x_values or not widths:
+        return widths
+
+    x_numeric = _coerce_x_numeric(x_values)
+    if len(x_numeric) < 2:
+        return widths
+
+    x_min = min(x_numeric)
+    x_max = max(x_numeric)
+    x_span = x_max - x_min
+    if math.isclose(x_span, 0.0):
+        return widths
+
+    # Approximate drawable axis width from figure width to convert pixel minimum into data units.
+    axis_pixel_width = max(fig_width_inches * dpi * 0.78, 1.0)
+    min_width_data = (x_span / axis_pixel_width) * max(min_pixels, 0.5)
+    max_width_data = x_span * 0.45
+
+    if min_width_data <= 0:
+        return widths
+
+    return [min(max(width, min_width_data), max_width_data) for width in widths]
+
+
+def _compute_y_limits(y_values: list[float]) -> tuple[float, float]:
+    """Compute y-axis limits with +/-10% padding and a zero floor for non-negative data."""
+    if not y_values:
+        return (-1.0, 1.0)
+
+    min_value = min(y_values)
+    max_value = max(y_values)
+
+    upper = max_value + (abs(max_value) * 0.1)
+    if min_value < 0:
+        lower = min_value - (abs(min_value) * 0.1)
+    else:
+        lower = 0.0
+
+    if math.isclose(lower, upper):
+        delta = abs(max_value) * 0.1 or 1.0
+        lower -= delta
+        upper += delta
+    return (lower, upper)
+
+
 def generate_with_matplotlib(
     output_path: Path,
     x_values: list,
@@ -109,6 +163,9 @@ def generate_with_matplotlib(
     animate: bool,
     animation_speed: float = 1.0,
     size: str = "m",
+    max_animation_frames: int | None = 180,
+    animation_loop_count: int = 0,
+    animation_time_budget_seconds: float | None = None,
 ) -> None:
     """Render static PNG or animated GIF graphs with one to three stacked subplots."""
     if not y_series:
@@ -138,12 +195,13 @@ def generate_with_matplotlib(
     }
     fig_width, per_subplot_height = size_to_base.get(size, size_to_base["m"])
     fig_height = max(2.8, per_subplot_height * subplot_count)
+    render_dpi = 120
     fig, axes = plt.subplots(
         subplot_count,
         1,
         sharex=True,
         figsize=(fig_width, fig_height),
-        dpi=120,
+        dpi=render_dpi,
     )
     if subplot_count == 1:
         axes = [axes]
@@ -189,6 +247,45 @@ def generate_with_matplotlib(
                 fig.subplots_adjust(bottom=0.28 if datetime_rotation else 0.16)
 
     bar_widths = _compute_bar_widths(plot_x_values)
+    bar_widths = _enforce_min_visible_bar_widths(plot_x_values, bar_widths, fig_width, render_dpi)
+
+    def build_frame_end_indexes(frame_cap: int | None) -> list[int]:
+        if frame_cap is None or frame_cap <= 0:
+            frame_cap = len(plot_x_values)
+        frame_cap = max(1, min(int(frame_cap), len(plot_x_values)))
+        if frame_cap == 1:
+            frame_index_set = {len(plot_x_values) - 1}
+        else:
+            step = max(1, len(plot_x_values) // frame_cap)
+            frame_index_set = set(range(0, len(plot_x_values), step))
+            frame_index_set.add(len(plot_x_values) - 1)
+
+        # Keep extrema frames so animated charts always show min/max values used for axis limits.
+        for series in y_series:
+            if not series:
+                continue
+            max_index = max(range(len(series)), key=series.__getitem__)
+            min_index = min(range(len(series)), key=series.__getitem__)
+            frame_index_set.add(max_index)
+            frame_index_set.add(min_index)
+
+        return sorted(frame_index_set)
+
+    def reset_artists() -> None:
+        for idx, artist, artist_type in line_like:
+            if artist_type == "line":
+                artist.set_data([], [])
+            else:
+                # Scatter expects an (N, 2) shaped offsets array; [] can become 1-D and crash.
+                artist.set_offsets([(float("nan"), float("nan"))])
+
+        for bars in bar_containers:
+            if bars is None:
+                continue
+            for patch in bars.patches:
+                patch.set_height(0)
+
+    frame_end_indexes = build_frame_end_indexes(max_animation_frames)
 
     if not animate:
         for idx, axis in enumerate(axes):
@@ -198,11 +295,11 @@ def generate_with_matplotlib(
             elif subplot_types[idx] == "scatter":
                 axis.scatter(plot_x_values, y_series[idx], color=color, s=24)
             else:
-                axis.bar(plot_x_values, y_series[idx], color=color, alpha=0.88, width=bar_widths)
+                axis.bar(plot_x_values, y_series[idx], color=color, width=bar_widths)
 
             y_values = y_series[idx]
-            y_padding = (max(y_values) - min(y_values)) * 0.1 or 1
-            axis.set_ylim(min(y_values) - y_padding, max(y_values) + y_padding)
+            y_min, y_max = _compute_y_limits(y_values)
+            axis.set_ylim(y_min, y_max)
             if inverted_bars[idx]:
                 axis.invert_yaxis()
 
@@ -212,16 +309,6 @@ def generate_with_matplotlib(
         fig.savefig(output_path)
         plt.close(fig)
         return
-
-    max_frames = 180
-    step = max(1, len(x_values) // max_frames)
-    frame_indexes = list(range(0, len(x_values), step))
-    if frame_indexes[-1] != len(x_values) - 1:
-        frame_indexes.append(len(x_values) - 1)
-
-    x_anim = [plot_x_values[idx] for idx in frame_indexes]
-    y_anim_series = [[series[idx] for idx in frame_indexes] for series in y_series]
-    bar_widths_anim = [bar_widths[idx] for idx in frame_indexes]
 
     artists: list[Any] = []
     line_like = []
@@ -240,7 +327,7 @@ def generate_with_matplotlib(
             artists.append(scatter)
             bar_containers.append(None)
         else:
-            bars = axis.bar(x_anim, [0.0] * len(x_anim), color=color, alpha=0.88, width=bar_widths_anim)
+            bars = axis.bar(plot_x_values, [0.0] * len(plot_x_values), color=color, width=bar_widths)
             bar_containers.append(bars)
             artists.extend(list(bars.patches))
 
@@ -254,18 +341,21 @@ def generate_with_matplotlib(
 
     for idx, axis in enumerate(axes):
         y_values = y_series[idx]
-        y_padding = (max(y_values) - min(y_values)) * 0.1 or 1
-        axis.set_ylim(min(y_values) - y_padding, max(y_values) + y_padding)
+        y_min, y_max = _compute_y_limits(y_values)
+        axis.set_ylim(y_min, y_max)
         if inverted_bars[idx]:
             axis.invert_yaxis()
 
-    def update(frame_idx: int) -> None:
-        """Append data points up to the current animation frame."""
-        upto = frame_idx + 1
+    revealed_bar_indexes = [-1 for _ in bar_containers]
+
+    def update(frame_idx: int, current_frame_end_indexes: list[int]) -> None:
+        """Append full-series data points up to the frame's endpoint index."""
+        end_index = current_frame_end_indexes[frame_idx]
+        upto = end_index + 1
 
         for idx, artist, artist_type in line_like:
-            x_slice = x_anim[:upto]
-            y_slice = y_anim_series[idx][:upto]
+            x_slice = plot_x_values[:upto]
+            y_slice = y_series[idx][:upto]
             if artist_type == "line":
                 artist.set_data(x_slice, y_slice)
             else:
@@ -274,30 +364,51 @@ def generate_with_matplotlib(
         for idx, bars in enumerate(bar_containers):
             if bars is None:
                 continue
-            y_slice = y_anim_series[idx][:upto]
-            for patch_idx, patch in enumerate(bars.patches):
-                patch.set_height(y_slice[patch_idx] if patch_idx < len(y_slice) else 0)
+            y_values = y_series[idx]
+            start_index = revealed_bar_indexes[idx] + 1
+            if start_index > end_index:
+                start_index = 0
+                for patch in bars.patches:
+                    patch.set_height(0)
 
-    for idx, artist, artist_type in line_like:
-        if artist_type == "line":
-            artist.set_data([], [])
-        else:
-            # Scatter expects an (N, 2) shaped offsets array; [] can become 1-D and crash.
-            artist.set_offsets([(float("nan"), float("nan"))])
+            for patch_idx in range(start_index, min(end_index, len(bars.patches) - 1) + 1):
+                bars.patches[patch_idx].set_height(y_values[patch_idx])
+            revealed_bar_indexes[idx] = max(revealed_bar_indexes[idx], end_index)
 
-    for bars in bar_containers:
-        if bars is None:
-            continue
-        for patch in bars.patches:
-            patch.set_height(0)
+    reset_artists()
+
+    if animation_time_budget_seconds is not None and animation_time_budget_seconds > 0 and len(frame_end_indexes) > 1:
+        probe_count = min(3, len(frame_end_indexes))
+        probe_indexes = frame_end_indexes[-probe_count:]
+        probe_start = perf_counter()
+        for probe_frame_idx in range(len(frame_end_indexes) - probe_count, len(frame_end_indexes)):
+            update(probe_frame_idx, frame_end_indexes)
+            fig.canvas.draw()
+        probe_elapsed = perf_counter() - probe_start
+        average_frame_seconds = probe_elapsed / probe_count if probe_count else 0.0
+        reset_artists()
+
+        if average_frame_seconds > 0:
+            budget_adjusted_cap = int(animation_time_budget_seconds / (average_frame_seconds * 1.2))
+            budget_adjusted_cap = max(probe_count, budget_adjusted_cap)
+            if budget_adjusted_cap < len(frame_end_indexes):
+                frame_end_indexes = build_frame_end_indexes(budget_adjusted_cap)
+                reset_artists()
 
     if x_is_datetime and mdates is not None and datetime_rotation is not None:
         apply_datetime_tick_rotation()
     apply_layout()
-    frame_duration_ms = max(20, int(80 / max(animation_speed, 0.25)))
+    frame_count = max(len(frame_end_indexes), 1)
+    seconds_per_frame = 0.1
+    target_loop_seconds = frame_count * seconds_per_frame
+    if target_loop_seconds < 5.0:
+        seconds_per_frame = 5.0 / frame_count
+    elif target_loop_seconds > 10.0:
+        seconds_per_frame = 10.0 / frame_count
+    frame_duration_ms = max(20, int(seconds_per_frame * 1000))
     frames: list[Image.Image] = []
-    for frame_idx in range(len(x_anim)):
-        update(frame_idx)
+    for frame_idx in range(len(frame_end_indexes)):
+        update(frame_idx, frame_end_indexes)
         fig.canvas.draw()
         width, height = fig.canvas.get_width_height()
         buffer = fig.canvas.buffer_rgba()
@@ -312,7 +423,7 @@ def generate_with_matplotlib(
         save_all=True,
         append_images=frames[1:],
         duration=frame_duration_ms,
-        loop=0,
+        loop=max(0, int(animation_loop_count)),
         optimize=False,
     )
     plt.close(fig)
