@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use PanoCoTA, please cite it using the metadata below."
+title: "PanoCoTA"
+type: software
+authors:
+  - family-names: "Neill"
+    given-names: "Aaron"
+repository-code: "https://github.com/a-j-neill/PanoCOTA"
+url: "https://github.com/a-j-neill/PanoCOTA"
+license: "GPL-3.0"
+abstract: "PanoCoTA is a web app for creating interactive 360 tours with graphs, images, and text for scientific communication."
