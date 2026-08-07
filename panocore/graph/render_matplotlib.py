@@ -249,6 +249,20 @@ def generate_with_matplotlib(
     bar_widths = _compute_bar_widths(plot_x_values)
     bar_widths = _enforce_min_visible_bar_widths(plot_x_values, bar_widths, fig_width, render_dpi)
 
+    def apply_x_limits() -> None:
+        """Apply x-axis limits with breathing room for datetime-series edges."""
+        x_numeric = _coerce_x_numeric(plot_x_values)
+        x_min, x_max = min(x_numeric), max(x_numeric)
+        if math.isclose(x_min, x_max):
+            x_min -= 1
+            x_max += 1
+        elif x_is_datetime and mdates is not None and x_values:
+            # Date numbers use days as units; +/- 1.0 adds one full day padding.
+            x_min -= 1.0
+            x_max += 1.0
+        for axis in axes:
+            axis.set_xlim(x_min, x_max)
+
     def build_frame_end_indexes(frame_cap: int | None) -> list[int]:
         if frame_cap is None or frame_cap <= 0:
             frame_cap = len(plot_x_values)
@@ -293,7 +307,7 @@ def generate_with_matplotlib(
             if subplot_types[idx] == "line":
                 axis.plot(plot_x_values, y_series[idx], color=color, linewidth=2.2)
             elif subplot_types[idx] == "scatter":
-                axis.scatter(plot_x_values, y_series[idx], color=color, s=24)
+                axis.scatter(plot_x_values, y_series[idx], facecolors="none", edgecolors=color, linewidths=1.5, s=30)
             else:
                 axis.bar(plot_x_values, y_series[idx], color=color, width=bar_widths)
 
@@ -303,6 +317,7 @@ def generate_with_matplotlib(
             if inverted_bars[idx]:
                 axis.invert_yaxis()
 
+        apply_x_limits()
         if x_is_datetime and mdates is not None and datetime_rotation is not None:
             apply_datetime_tick_rotation()
         apply_layout()
@@ -322,7 +337,7 @@ def generate_with_matplotlib(
             artists.append(line)
             bar_containers.append(None)
         elif subplot_type == "scatter":
-            scatter = axis.scatter([], [], color=color, s=24)
+            scatter = axis.scatter([], [], facecolors="none", edgecolors=color, linewidths=1.5, s=30)
             line_like.append((idx, scatter, "scatter"))
             artists.append(scatter)
             bar_containers.append(None)
@@ -331,13 +346,7 @@ def generate_with_matplotlib(
             bar_containers.append(bars)
             artists.extend(list(bars.patches))
 
-    x_numeric = _coerce_x_numeric(plot_x_values)
-    x_min, x_max = min(x_numeric), max(x_numeric)
-    if math.isclose(x_min, x_max):
-        x_min -= 1
-        x_max += 1
-    for axis in axes:
-        axis.set_xlim(x_min, x_max)
+    apply_x_limits()
 
     for idx, axis in enumerate(axes):
         y_values = y_series[idx]

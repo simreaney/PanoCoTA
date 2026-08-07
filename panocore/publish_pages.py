@@ -120,6 +120,7 @@ def _build_graph_for_hotspot(tour_name: str, graph_block: dict) -> str:
         animate=bool(graph_block.get("animate") is True or str(graph_block.get("animate", "")).lower() == "true"),
         y_label=str(graph_block.get("yLabel") or "").strip() or None,
         y_unit=str(graph_block.get("yUnit") or "").strip() or None,
+        y_axis_labels=graph_block.get("yAxisLabels") if isinstance(graph_block.get("yAxisLabels"), list) else None,
         subplot_types=graph_block.get("subplotTypes") if isinstance(graph_block.get("subplotTypes"), list) else None,
         subplot_colors=graph_block.get("subplotColors") if isinstance(graph_block.get("subplotColors"), list) else None,
         inverted_bars=graph_block.get("invertedBars") if isinstance(graph_block.get("invertedBars"), list) else None,
@@ -255,7 +256,40 @@ def _write_manifest(tours: list[str], *, merge_existing: bool = True) -> None:
         json.dump(manifest, handle, indent=2)
 
 
-def export_pages(tours: list[str], *, merge_existing: bool = True, progress: ProgressCallback | None = None) -> list[str]:
+def _prune_stale_published_tours(exported: list[str]) -> None:
+    if not TOURS_DIR.exists():
+        return
+
+    keep = {normalize_tour_name(name) for name in exported if str(name).strip()}
+    for path in TOURS_DIR.iterdir():
+        if path.is_dir() and path.name not in keep:
+            shutil.rmtree(path)
+
+
+def _validate_published_bundle_size(limit_bytes: int = 95 * 1024 * 1024) -> None:
+    oversized: list[str] = []
+    if not PUBLISHED_DIR.exists():
+        return
+
+    for path in PUBLISHED_DIR.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size >= limit_bytes:
+            oversized.append(f"{path.relative_to(PUBLISHED_DIR)} ({size} bytes)")
+
+    if oversized:
+        details = "; ".join(oversized)
+        raise RuntimeError(
+            "Publish blocked: the generated GitHub Pages bundle contains oversized file(s) that may trigger GitHub's file size limit. "
+            f"Remove or downsample these asset(s) and try again: {details}"
+        )
+
+
+def export_pages(tours: list[str], *, merge_existing: bool = False, progress: ProgressCallback | None = None) -> list[str]:
     if not tours:
         return []
 
@@ -273,6 +307,7 @@ def export_pages(tours: list[str], *, merge_existing: bool = True, progress: Pro
         normalized = _export_tour(tour_name, progress=_tour_progress)
         exported.append(normalized)
 
+    _prune_stale_published_tours(exported)
     _write_manifest(exported, merge_existing=merge_existing)
     _emit_progress(progress, 100, "Static tour manifest updated.")
     return exported
@@ -452,9 +487,12 @@ def export_and_publish(
 ) -> tuple[list[str], str, str | None, str | None]:
     """Export tours, push static bundle, and configure Pages branch deployment."""
     _emit_progress(progress, 1, "Exporting static tour bundle...")
-    exported = export_pages(tours, merge_existing=True, progress=lambda pct, msg: _emit_progress(progress, round(pct * 0.70), msg))
+    exported = export_pages(tours, merge_existing=False, progress=lambda pct, msg: _emit_progress(progress, round(pct * 0.70), msg))
     if not exported:
         raise RuntimeError("No tours were exported.")
+
+    _emit_progress(progress, 71, "Checking exported bundle sizes...")
+    _validate_published_bundle_size()
 
     repo_name = (repo or "").strip() or _default_repo_name(exported)
     _emit_progress(progress, 72, "Ensuring GitHub repository exists...")

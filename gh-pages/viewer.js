@@ -150,15 +150,33 @@ function createHotspotDom(hotSpotDiv, args) {
     (args.prompt && args.prompt.trim()) ||
     kind === "graph" ||
     kind === "image" ||
-    kind === "text"
+    kind === "text" ||
+    kind === "textLink"
   ) {
     const prompt = document.createElement("div");
     prompt.className = `prompt-card prompt-card--${kind}`;
     const promptText = document.createElement("div");
     promptText.textContent =
-      (kind === "text" ? args.prompt || args.text : args.text || args.prompt) ||
-      (kind === "graph" ? "Graphed data" : kind === "image" ? "Image preview" : "Free text");
+      (kind === "text" || kind === "textLink" ? args.prompt || args.text : args.text || args.prompt) ||
+      (kind === "graph"
+        ? "Graphed data"
+        : kind === "image"
+          ? "Image preview"
+          : kind === "textLink"
+            ? "Open link"
+            : "Free text");
     prompt.appendChild(promptText);
+
+    if (kind === "textLink" && args.link && args.link.url) {
+      wrap.classList.add("hotspot-wrap--link");
+      wrap.title = "Open external link";
+      wrap.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const targetBehavior = args.link.target === "_self" ? "_self" : "_blank";
+        window.open(args.link.url, targetBehavior, targetBehavior === "_blank" ? "noopener,noreferrer" : undefined);
+      });
+    }
 
     if (kind === "graph" && args.graph) {
       prompt.classList.add("prompt-card--graph");
@@ -261,16 +279,23 @@ function toPannellumHotspot(spot) {
       kind: spot.kind || "scene",
       graph: spot.graph || null,
       image: spot.image || null,
+      link: spot.link || null,
     },
   };
 
-  if (spot.kind === "graph" || spot.kind === "image" || spot.kind === "text") {
+  if (spot.kind === "graph" || spot.kind === "image" || spot.kind === "text" || spot.kind === "textLink") {
     return {
       ...common,
       type: "info",
       text:
         spot.text ||
-        (spot.kind === "graph" ? "Graphed data" : spot.kind === "image" ? "Image" : "Free text"),
+        (spot.kind === "graph"
+          ? "Graphed data"
+          : spot.kind === "image"
+            ? "Image"
+            : spot.kind === "textLink"
+              ? "Open link"
+              : "Free text"),
     };
   }
 

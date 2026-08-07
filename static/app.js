@@ -66,6 +66,25 @@ function asTruthy(value) {
   return text === "true" || text === "1" || text === "yes" || text === "on";
 }
 
+function normalizeExternalUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    throw new Error("Linked text hotspots require an external URL.");
+  }
+
+  const candidate = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(raw) ? raw : `https://${raw}`;
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch (_error) {
+    throw new Error("External URL must be a valid web address.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("External URL must start with http:// or https://.");
+  }
+  return parsed.toString();
+}
+
 async function requestGraphAsset(queryKey) {
   if (graphRequestCache.has(queryKey)) {
     return graphRequestCache.get(queryKey);
@@ -108,6 +127,10 @@ const el = {
   hotspotLabel: document.getElementById("hotspot-label"),
   textContentWrap: document.getElementById("text-content-wrap"),
   hotspotFreeText: document.getElementById("hotspot-free-text"),
+  textLinkUrlWrap: document.getElementById("text-link-url-wrap"),
+  hotspotLinkUrl: document.getElementById("hotspot-link-url"),
+  textLinkTargetWrap: document.getElementById("text-link-target-wrap"),
+  hotspotLinkTarget: document.getElementById("hotspot-link-target"),
   hotspotCsv: document.getElementById("hotspot-csv"),
   hotspotX: document.getElementById("hotspot-x"),
   hotspotSubplots: document.getElementById("hotspot-subplots"),
@@ -327,11 +350,13 @@ function getSelectedSubplotConfigs() {
     const typeNode = row.querySelector(".subplot-type-select");
     const invertNode = row.querySelector(".subplot-invert-check");
     const colorNode = row.querySelector(".subplot-color-select");
+    const axisLabelNode = row.querySelector(".subplot-axis-label-input");
     return {
       y: (yNode?.value || "").trim(),
       type: (typeNode?.value || "line").trim().toLowerCase(),
       invertBar: Boolean(invertNode?.checked),
       color: (colorNode?.value || "").trim().toLowerCase(),
+      yAxisLabel: (axisLabelNode?.value || "").trim(),
     };
   });
 }
@@ -359,6 +384,7 @@ function renderSubplotConfigRows(preferredConfigs = []) {
     html.push(
       `<div class="subplot-config-row">
         <label class="subplot-y-label">Subplot ${index + 1} Y Column<select class="subplot-y-select" id="hotspot-y-${index}"></select></label>
+        <label class="subplot-axis-label">Y Axis Label (optional)<input class="subplot-axis-label-input" id="hotspot-y-label-${index}" value="${String(preferred.yAxisLabel || "").replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}" placeholder="Defaults to column name" /></label>
         <label class="subplot-type-label">Type<select class="subplot-type-select" id="hotspot-type-${index}">
           <option value="line" ${preferredType === "line" ? "selected" : ""}>Line</option>
           <option value="scatter" ${preferredType === "scatter" ? "selected" : ""}>Scatter</option>
@@ -435,7 +461,7 @@ function positionPromptCard(wrap, prompt) {
   const viewerRect = document.getElementById("viewer")?.getBoundingClientRect();
 
   let left = gap;
-  let top = -14;
+  let top = 34;
 
   if (isMediaPrompt && viewerRect) {
     // Keep large media cards centered vertically in the panorama for consistent readability.
@@ -489,15 +515,33 @@ function createHotspotDom(hotSpotDiv, args) {
     (args.prompt && args.prompt.trim()) ||
     kind === "graph" ||
     kind === "image" ||
-    kind === "text"
+    kind === "text" ||
+    kind === "textLink"
   ) {
     const prompt = document.createElement("div");
     prompt.className = `prompt-card prompt-card--${kind}`;
     const promptText = document.createElement("div");
     promptText.textContent =
-      (kind === "text" ? args.prompt || args.text : args.text || args.prompt) ||
-      (kind === "graph" ? "Graphed data" : kind === "image" ? "Image preview" : "Free text");
+      (kind === "text" || kind === "textLink" ? args.prompt || args.text : args.text || args.prompt) ||
+      (kind === "graph"
+        ? "Graphed data"
+        : kind === "image"
+          ? "Image preview"
+          : kind === "textLink"
+            ? "Open link"
+            : "Free text");
     prompt.appendChild(promptText);
+
+    if (kind === "textLink" && args.link && args.link.url && !args.interactive) {
+      wrap.classList.add("hotspot-wrap--link");
+      wrap.title = "Open external link";
+      wrap.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const targetBehavior = args.link.target === "_self" ? "_self" : "_blank";
+        window.open(args.link.url, targetBehavior, targetBehavior === "_blank" ? "noopener,noreferrer" : undefined);
+      });
+    }
 
     // Graph hotspots lazy-load graph image on first hover.
     if (kind === "graph" && args.graph) {
@@ -530,6 +574,9 @@ function createHotspotDom(hotSpotDiv, args) {
         const invertedBars = Array.isArray(args.graph.invertedBars)
           ? args.graph.invertedBars.map((value) => asTruthy(value))
           : [];
+        const yAxisLabels = Array.isArray(args.graph.yAxisLabels)
+          ? args.graph.yAxisLabels.map((value) => String(value ?? "").trim())
+          : [];
 
         const query = new URLSearchParams({
           csv: args.graph.csv || "",
@@ -551,6 +598,7 @@ function createHotspotDom(hotSpotDiv, args) {
           query.append("plotType", subplotTypes[idx] || "line");
           query.append("color", subplotColors[idx] || SUBPLOT_COLOR_OPTIONS[idx % SUBPLOT_COLOR_OPTIONS.length].value);
           query.append("invertBar", invertedBars[idx] ? "true" : "false");
+          query.append("yAxisLabel", yAxisLabels[idx] || "");
         }
         if (args.graph.x) {
           query.set("x", args.graph.x);
@@ -910,6 +958,8 @@ function buildHotspotEntry(source, pitch, yaw) {
       ? "View graphed data"
       : kind === "image"
         ? "View image"
+        : kind === "textLink"
+          ? "Open link"
         : kind === "text"
           ? "View text"
           : `Go to ${target}`);
@@ -941,6 +991,7 @@ function buildHotspotEntry(source, pitch, yaw) {
       return SUBPLOT_COLOR_OPTIONS[index % SUBPLOT_COLOR_OPTIONS.length].value;
     });
     const invertedBars = subplotConfigs.map((item) => Boolean(item.invertBar));
+    const yAxisLabels = subplotConfigs.map((item) => String(item.yAxisLabel || "").trim());
     const animate = el.hotspotAnimate.value === "true";
     const animationSpeed = DEFAULT_GRAPH_SECONDS_PER_FRAME;
 
@@ -964,6 +1015,7 @@ function buildHotspotEntry(source, pitch, yaw) {
           subplotTypes,
           subplotColors,
           invertedBars,
+          yAxisLabels,
           animate,
           animationSpeed,
           size: "m",
@@ -1014,6 +1066,31 @@ function buildHotspotEntry(source, pitch, yaw) {
         prompt: freeText,
       },
       message: `Added free text hotspot in '${source}'.`,
+      clear: "none",
+    };
+  }
+
+  if (kind === "textLink") {
+    const freeText = el.hotspotFreeText.value.trim();
+    const url = normalizeExternalUrl(el.hotspotLinkUrl.value);
+    const targetBehavior = el.hotspotLinkTarget.value === "_self" ? "_self" : "_blank";
+    if (!freeText) {
+      throw new Error("Linked text hotspots require text content.");
+    }
+
+    return {
+      spot: {
+        kind: "textLink",
+        pitch,
+        yaw,
+        text,
+        prompt: freeText,
+        link: {
+          url,
+          target: targetBehavior,
+        },
+      },
+      message: `Added linked text hotspot in '${source}'.`,
       clear: "none",
     };
   }
@@ -1202,16 +1279,23 @@ function toPannellumHotspot(spot) {
       kind: spot.kind || "scene",
       graph: spot.graph || null,
       image: spot.image || null,
+      link: spot.link || null,
     },
   };
 
-  if (spot.kind === "graph" || spot.kind === "image" || spot.kind === "text") {
+  if (spot.kind === "graph" || spot.kind === "image" || spot.kind === "text" || spot.kind === "textLink") {
     return {
       ...common,
       type: "info",
       text:
         spot.text ||
-        (spot.kind === "graph" ? "Graphed data" : spot.kind === "image" ? "Image" : "Free text"),
+        (spot.kind === "graph"
+          ? "Graphed data"
+          : spot.kind === "image"
+            ? "Image"
+            : spot.kind === "textLink"
+              ? "Open link"
+              : "Free text"),
     };
   }
 
@@ -1393,8 +1477,11 @@ function updateHotspotModeUI() {
   const isGraph = el.hotspotKind.value === "graph";
   const isImage = el.hotspotKind.value === "image";
   const isText = el.hotspotKind.value === "text";
-  el.targetSceneWrap.style.display = isGraph || isImage || isText ? "none" : "block";
-  el.textContentWrap.style.display = isText ? "block" : "none";
+  const isTextLink = el.hotspotKind.value === "textLink";
+  el.targetSceneWrap.style.display = isGraph || isImage || isText || isTextLink ? "none" : "block";
+  el.textContentWrap.style.display = isText || isTextLink ? "block" : "none";
+  el.textLinkUrlWrap.style.display = isTextLink ? "block" : "none";
+  el.textLinkTargetWrap.style.display = isTextLink ? "block" : "none";
   el.graphCsvWrap.style.display = isGraph ? "block" : "none";
   el.graphXWrap.style.display = isGraph ? "block" : "none";
   el.graphSubplotsWrap.style.display = isGraph ? "block" : "none";
@@ -2033,6 +2120,33 @@ function setupEvents() {
     if (scope !== "all") {
       selectedTour = (activeTourName || "").trim();
       if (!selectedTour) {
+        selectedTour = resolveSaveTourName();
+        if (selectedTour) {
+          const saveResponse = await fetch("/api/tour/save", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: selectedTour,
+              tour,
+            }),
+          });
+
+          const saveBody = await saveResponse.json();
+          if (!saveResponse.ok) {
+            setPublishStatus(saveBody.error || "Save failed before publish.", true);
+            return;
+          }
+          updateCurrentTourName(saveBody.name || selectedTour);
+          try {
+            await refreshTourList(saveBody.name || selectedTour, saveBody.name || selectedTour);
+          } catch (_error) {
+            // Keep publish flow moving even if the tour list refresh fails.
+          }
+        }
+      }
+      if (!selectedTour) {
         setPublishStatus("Load or save a current tour first, or switch scope to All Saved Tours.", true);
         return;
       }
@@ -2088,7 +2202,8 @@ function setupEvents() {
       setPublishStatus(publishMessage, false);
       setStatus("GitHub publish completed.");
     } catch (_error) {
-      setPublishStatus("Publish request failed.", true);
+      const message = _error?.message || "Publish request failed.";
+      setPublishStatus(message, true);
     } finally {
       // Do not keep tokens in the form after a request completes.
       el.publishToken.value = "";

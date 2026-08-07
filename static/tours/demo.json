@@ -1,0 +1,215 @@
+{
+  "meta": {
+    "startScene": "Gladi Grassland",
+    "title": "Demo Tour"
+  },
+  "scenes": {
+    "Gladi Dairy": {
+      "hotSpots": [
+        {
+          "id": "hotspot-5",
+          "kind": "scene",
+          "pitch": 2.25,
+          "prompt": "Go to the grassland",
+          "targetScene": "Gladi Grassland",
+          "text": "Go to the grassland",
+          "yaw": -167.94
+        },
+        {
+          "id": "hotspot-14",
+          "kind": "textLink",
+          "link": {
+            "target": "_blank",
+            "url": "https://link.springer.com/article/10.1007/s11367-024-02382-y"
+          },
+          "pitch": -23.54,
+          "prompt": "Click to read research investigating the environmental impact of different feed regimes",
+          "text": "Dairy cow feed",
+          "yaw": -32.97
+        },
+        {
+          "id": "hotspot-15",
+          "kind": "textLink",
+          "link": {
+            "target": "_blank",
+            "url": "https://www.sciencedirect.com/science/article/pii/S0048969725013543"
+          },
+          "pitch": -15.08,
+          "prompt": "Click to read research using LSTMs to model enteric methane emissions from dairy cattle.",
+          "text": "Dairy cow emissions",
+          "yaw": 150.67
+        }
+      ],
+      "id": "Gladi Dairy",
+      "panorama": "/images360/demo/DairyShed-5.jpg",
+      "title": "Gladi Dairy"
+    },
+    "Gladi Grassland": {
+      "hotSpots": [
+        {
+          "id": "hotspot-1",
+          "kind": "scene",
+          "pitch": 2.55,
+          "prompt": "Go to the barn",
+          "targetScene": "Gladi Dairy",
+          "text": "Go to the barn",
+          "yaw": -112.73
+        },
+        {
+          "id": "hotspot-7",
+          "image": {
+            "caption": "This is where the WATER will be installed",
+            "file": "key_fig_water.jpg",
+            "path": "/images2d/demo/key_fig_water.jpg"
+          },
+          "kind": "image",
+          "pitch": -1.54,
+          "prompt": "WATER",
+          "text": "WATER",
+          "yaw": -158.24
+        },
+        {
+          "id": "hotspot-9",
+          "image": {
+            "caption": "A flume will be installed here",
+            "file": "flume_schwingbach-2.jpg",
+            "path": "/images2d/demo/flume_schwingbach-2.jpg"
+          },
+          "kind": "image",
+          "pitch": -13.08,
+          "prompt": "Flume",
+          "text": "Flume",
+          "yaw": -100.07
+        },
+        {
+          "id": "hotspot-10",
+          "image": {
+            "caption": "A transect of GW wells will be drilled either side of the stream",
+            "file": "gw_schwingbach-2.jpg",
+            "path": "/images2d/demo/gw_schwingbach-2.jpg"
+          },
+          "kind": "image",
+          "pitch": -9.26,
+          "prompt": "GW",
+          "text": "GW",
+          "yaw": -157.25
+        },
+        {
+          "id": "hotspot-11",
+          "kind": "text",
+          "pitch": -27.13,
+          "prompt": "Cattle from the dairy farm sometimes graze these fields and may act as a source of E. coli",
+          "text": "Grazing",
+          "yaw": -60.49
+        },
+        {
+          "id": "hotspot-12",
+          "kind": "text",
+          "pitch": -12.76,
+          "prompt": "There is also lots of evidence of wild boar activity alongside the stream",
+          "text": "Wildlife",
+          "yaw": -2.33
+        },
+        {
+          "graph": {
+            "animate": true,
+            "animationSpeed": 0.1,
+            "csv": "sites_of_interest.csv",
+            "invertedBars": [
+              false
+            ],
+            "size": "m",
+            "subplotColors": [
+              "green"
+            ],
+            "subplotTypes": [
+              "scatter"
+            ],
+            "subplots": 1,
+            "x": "Date",
+            "y": "GD_B5",
+            "yAxisLabels": [
+              "E. coli concentration (MPN/100ml)"
+            ],
+            "yColumns": [
+              "GD_B5"
+            ]
+          },
+          "id": "hotspot-17",
+          "kind": "graph",
+          "pitch": -5.92,
+          "prompt": "View graphed data",
+          "text": "View graphed data",
+          "yaw": -145.02
+        },
+        {
+          "kind": "graph",
+          "pitch": -14.02,
+          "yaw": -51.05,
+          "text": "E. coli GD_B6",
+          "prompt": "E. coli GD_B6",
+          "graph": {
+            "csv": "sites_of_interest.csv",
+            "x": "Date",
+            "y": "GD_B6",
+            "yColumns": [
+              "GD_B6"
+            ],
+            "subplots": 1,
+            "subplotTypes": [
+              "scatter"
+            ],
+            "subplotColors": [
+              "green"
+            ],
+            "invertedBars": [
+              false
+            ],
+            "yAxisLabels": [
+              "E. coli concentration (MPN/100ml)"
+            ],
+            "animate": true,
+            "animationSpeed": 0.1,
+            "size": "m"
+          },
+          "id": "hotspot-18"
+        },
+        {
+          "kind": "graph",
+          "pitch": -8.67,
+          "yaw": 8.53,
+          "text": "E. coli GD_B7",
+          "prompt": "E. coli GD_B7",
+          "graph": {
+            "csv": "sites_of_interest.csv",
+            "x": "Date",
+            "y": "GD_B7",
+            "yColumns": [
+              "GD_B7"
+            ],
+            "subplots": 1,
+            "subplotTypes": [
+              "scatter"
+            ],
+            "subplotColors": [
+              "green"
+            ],
+            "invertedBars": [
+              false
+            ],
+            "yAxisLabels": [
+              "E. coli concentration (MPN/100ml)"
+            ],
+            "animate": false,
+            "animationSpeed": 0.1,
+            "size": "m"
+          },
+          "id": "hotspot-19"
+        }
+      ],
+      "id": "Gladi Grassland",
+      "panorama": "/images360/demo/field.jpg",
+      "title": "Gladi Grassland"
+    }
+  }
+}

@@ -225,6 +225,16 @@ button {
   --prompt-border: rgba(122, 199, 79, 0.66);
 }
 
+.hotspot-wrap--textLink {
+  --dot-color: #7ac74f;
+  --dot-ring: rgba(122, 199, 79, 0.7);
+  --prompt-border: rgba(122, 199, 79, 0.66);
+}
+
+.hotspot-wrap--link {
+  cursor: pointer;
+}
+
 .hotspot-host > :not(.hotspot-wrap) {
   opacity: 0;
 }
@@ -283,6 +293,10 @@ button {
 }
 
 .prompt-card--text {
+  background: rgba(18, 34, 14, 0.93);
+}
+
+.prompt-card--textLink {
   background: rgba(18, 34, 14, 0.93);
 }
 

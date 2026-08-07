@@ -88,6 +88,32 @@ Hotspot editing modes:
 5. Load it later
 - In Load Tour, select a saved tour and click Load Tour From Disk.
 
+## Demo Tour Instructions
+
+The bundled demo tour is saved at `static/tours/demo.json` and is meant to be used as a ready-made example.
+
+1. Start the app.
+- Run `python panocota.py`.
+- Leave the app open so the viewer and editor can load the demo tour.
+
+2. Open the read-only viewer first.
+- Go to `http://127.0.0.1:5000/viewer`.
+- Load `demo` there to inspect the finished tour without editing it.
+
+3. Then open the editor if you want to work with the demo.
+- Go to `http://127.0.0.1:5000`.
+- In Load Tour, select `demo` and click Load Tour From Disk.
+
+4. Explore the sample hotspots.
+- Scene hotspots move between Gladi Grassland and Gladi Dairy.
+- Graph hotspots open hover cards with plotted data.
+- Image hotspots show 2D reference panels.
+- Text Link hotspots open external research links.
+
+5. Use the demo as a template.
+- Save under a new tour name before making changes.
+- Keep `demo` around if you want a clean sample tour for testing publish and viewer behavior.
+
 ## Notes
 
 - Panorama and 2D images are stored separately per tour.
@@ -114,6 +140,8 @@ This repository now includes a static publishing pipeline for tours.
 - GitHub Token (one-time)
 
 4. Click Export and Publish.
+
+Warning: exported GitHub Pages bundles can still hit file size limits if stale or oversized generated assets remain in the export path. This is being addressed, and the publish flow now tries to block that failure mode before the push.
 
 ### Personal Access Token (PAT) Permissions
 

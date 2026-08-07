@@ -205,6 +205,7 @@
             <li>Scroll to Publish To GitHub at the bottom of the sidebar.</li>
             <li>Set owner, scope, branch, and token, then click Export and Publish.</li>
           </ul>
+          <div class="quick-tip">Warning: exported GitHub Pages bundles can still hit file size limits if stale or oversized generated assets remain in the export path. This is being addressed, and the publish flow now tries to block that failure mode before the push.</div>
           <p>PAT permission checklist:</p>
           <ul>
             <li>Contents: Read and write</li>
@@ -214,6 +215,18 @@
             <li>If creating a new repo from the app: repository creation rights for the selected owner</li>
           </ul>
           <div class="quick-tip">Tip: Save your tour first before publishing to avoid missing-tour errors.</div>
+        </section>
+
+        <section class="step">
+          <h2>Demo tour quick start</h2>
+          <ul>
+            <li>The bundled sample tour lives in <code>static/tours/demo.json</code>.</li>
+            <li>First run the app with <code>python panocota.py</code>.</li>
+            <li>Then open the read-only viewer at <code>http://127.0.0.1:5000/viewer</code> and load <code>demo</code> there to inspect the finished example.</li>
+            <li>Open the editor at <code>http://127.0.0.1:5000</code> and load <code>demo</code> from Load Tour if you want to edit it.</li>
+            <li>Use the demo as a template for new work instead of editing it directly.</li>
+            <li>Demo hotspots include scene links, graphs, images, free text, and text links.</li>
+          </ul>
         </section>
 
         <section class="step">

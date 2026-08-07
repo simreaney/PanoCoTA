@@ -226,6 +226,7 @@ def _build_graph_filename(
     csv_path: Path,
     x_col: str,
     y_cols: list[str],
+    y_axis_labels: list[str],
     subplot_types: list[str],
     subplot_colors: list[str],
     inverted_bars: list[bool],
@@ -241,6 +242,7 @@ def _build_graph_filename(
     """Create deterministic graph filename based on CSV and render inputs."""
     seed = (
         f"{GRAPH_RENDER_VERSION}|{csv_path.name}|{x_col}|{'|'.join(y_cols)}|"
+        f"{'|'.join(y_axis_labels)}|"
         f"{'|'.join(subplot_types)}|{'|'.join(subplot_colors)}|{'|'.join(str(flag) for flag in inverted_bars)}|"
         f"{animate}|{animation_speed:.3f}|{renderer}|{size}|{max_points or 0}|{max_animation_frames or 0}|{animation_loop_count}|{animation_time_budget_seconds or 0}|{csv_path.stat().st_mtime_ns}"
     )
@@ -256,6 +258,7 @@ def _generate_graph_asset_impl(
     animate: bool,
     y_label: str | None = None,
     y_unit: str | None = None,
+    y_axis_labels: list[str] | None = None,
     subplot_types: list[str] | None = None,
     subplot_colors: list[str] | None = None,
     inverted_bars: list[bool | str | int] | None = None,
@@ -284,6 +287,11 @@ def _generate_graph_asset_impl(
     normalized_subplot_types = _normalize_subplot_types(subplot_types, len(safe_y_cols))
     normalized_subplot_colors = _normalize_subplot_colors(subplot_colors, len(safe_y_cols))
     normalized_inverted_bars = _normalize_inverted_bars(inverted_bars, len(safe_y_cols))
+    normalized_y_axis_labels = [str(value or "").strip() for value in (y_axis_labels or [])]
+    if normalized_y_axis_labels and len(normalized_y_axis_labels) != len(safe_y_cols):
+        raise ValueError("Number of yAxisLabel values must match subplot count.")
+    if len(normalized_y_axis_labels) < len(safe_y_cols):
+        normalized_y_axis_labels.extend([""] * (len(safe_y_cols) - len(normalized_y_axis_labels)))
     _validate_subplot_options(normalized_subplot_types, normalized_inverted_bars)
     if len(safe_y_cols) > 1 and renderer == "pillow" and MATPLOTLIB_AVAILABLE:
         # Backward compatibility: old hotspot payloads may carry renderer='pillow'.
@@ -300,6 +308,7 @@ def _generate_graph_asset_impl(
         csv_path,
         safe_x,
         safe_y_cols,
+        normalized_y_axis_labels,
         normalized_subplot_types,
         normalized_subplot_colors,
         normalized_inverted_bars,
@@ -345,9 +354,14 @@ def _generate_graph_asset_impl(
         plotted_points = len(x_values)
 
     if len(safe_y_cols) == 1:
-        y_axis_labels = [derive_y_axis_label(safe_y_cols[0], y_label, y_unit)]
+        y_axis_labels = [
+            normalized_y_axis_labels[0] or derive_y_axis_label(safe_y_cols[0], y_label, y_unit)
+        ]
     else:
-        y_axis_labels = [derive_y_axis_label(y_col, None, None) for y_col in safe_y_cols]
+        y_axis_labels = [
+            normalized_y_axis_labels[idx] or derive_y_axis_label(y_col, None, None)
+            for idx, y_col in enumerate(safe_y_cols)
+        ]
 
     subplot_count = len(safe_y_cols)
 
@@ -428,6 +442,7 @@ def generate_graph_asset(
     animate: bool,
     y_label: str | None = None,
     y_unit: str | None = None,
+    y_axis_labels: list[str] | None = None,
     subplot_types: list[str] | None = None,
     subplot_colors: list[str] | None = None,
     inverted_bars: list[bool | str | int] | None = None,
@@ -449,6 +464,7 @@ def generate_graph_asset(
         animate,
         y_label,
         y_unit,
+        y_axis_labels,
         subplot_types,
         subplot_colors,
         inverted_bars,
@@ -472,6 +488,7 @@ def generate_graph_asset_with_info(
     animate: bool,
     y_label: str | None = None,
     y_unit: str | None = None,
+    y_axis_labels: list[str] | None = None,
     subplot_types: list[str] | None = None,
     subplot_colors: list[str] | None = None,
     inverted_bars: list[bool | str | int] | None = None,
@@ -493,6 +510,7 @@ def generate_graph_asset_with_info(
         animate,
         y_label,
         y_unit,
+        y_axis_labels,
         subplot_types,
         subplot_colors,
         inverted_bars,

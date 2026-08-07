@@ -294,8 +294,11 @@ def register_routes(app: Flask) -> None:
         if publish_all:
             tours = list_tour_names()
         else:
-            requested_name = normalize_tour_name(body.get("tour") or current_tour_name)
-            tours = [requested_name] if requested_name else []
+            requested_raw = (body.get("tour") or current_tour_name or "").strip()
+            if not requested_raw:
+                return jsonify({"error": "Save the current tour first, or switch publish scope to All Saved Tours."}), 400
+            requested_name = normalize_tour_name(requested_raw)
+            tours = [requested_name]
 
         if not tours:
             return jsonify({"error": "No tours selected for publish."}), 400
@@ -483,6 +486,7 @@ def register_routes(app: Flask) -> None:
         subplots_raw = (request.args.get("subplots") or "").strip()
         y_label = (request.args.get("yLabel") or "").strip()
         y_unit = (request.args.get("yUnit") or "").strip()
+        y_axis_labels = [value.strip() for value in request.args.getlist("yAxisLabel")]
         subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
         subplot_colors = [value.strip().lower() for value in request.args.getlist("color") if value is not None]
         inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
@@ -526,6 +530,8 @@ def register_routes(app: Flask) -> None:
                 return jsonify({"error": "Number of color values must match subplot count."}), 400
             if inverted_bars and len(inverted_bars) != subplot_count:
                 return jsonify({"error": "Number of invertBar values must match subplot count."}), 400
+            if y_axis_labels and len(y_axis_labels) != subplot_count:
+                return jsonify({"error": "Number of yAxisLabel values must match subplot count."}), 400
 
         try:
             graph_result = generate_graph_asset_with_info(
@@ -535,6 +541,7 @@ def register_routes(app: Flask) -> None:
                 animate,
                 y_label=y_label,
                 y_unit=y_unit,
+                y_axis_labels=y_axis_labels,
                 subplot_types=subplot_types,
                 subplot_colors=subplot_colors,
                 inverted_bars=inverted_bars,
@@ -579,6 +586,7 @@ def register_routes(app: Flask) -> None:
         subplots_raw = (request.args.get("subplots") or "").strip()
         y_label = (request.args.get("yLabel") or "").strip()
         y_unit = (request.args.get("yUnit") or "").strip()
+        y_axis_labels = [value.strip() for value in request.args.getlist("yAxisLabel")]
         subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
         subplot_colors = [value.strip().lower() for value in request.args.getlist("color") if value is not None]
         inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
@@ -622,6 +630,8 @@ def register_routes(app: Flask) -> None:
                 return jsonify({"error": "Number of color values must match subplot count."}), 400
             if inverted_bars and len(inverted_bars) != subplot_count:
                 return jsonify({"error": "Number of invertBar values must match subplot count."}), 400
+            if y_axis_labels and len(y_axis_labels) != subplot_count:
+                return jsonify({"error": "Number of yAxisLabel values must match subplot count."}), 400
 
         try:
             graph_result = generate_graph_asset_with_info(
@@ -631,6 +641,7 @@ def register_routes(app: Flask) -> None:
                 animate,
                 y_label=y_label,
                 y_unit=y_unit,
+                y_axis_labels=y_axis_labels,
                 subplot_types=subplot_types,
                 subplot_colors=subplot_colors,
                 inverted_bars=inverted_bars,
