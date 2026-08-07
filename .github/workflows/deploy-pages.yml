@@ -2,11 +2,6 @@ name: Deploy GitHub Pages
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - gh-pages/**
 
 permissions:
   contents: read
