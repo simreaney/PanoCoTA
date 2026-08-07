@@ -46,8 +46,7 @@ def register_routes(app: Flask) -> None:
     """Register HTTP routes on the Flask application instance."""
 
     current_tour = get_empty_tour()
-    current_tour_name = normalize_tour_name(None)
-    ensure_tour_asset_dirs(current_tour_name)
+    current_tour_name = ""
     publish_jobs: dict[str, dict] = {}
     publish_jobs_lock = threading.Lock()
 
@@ -74,12 +73,17 @@ def register_routes(app: Flask) -> None:
             write_graph_cache_signature_for_tour(normalized, current_signature)
         return removed
 
-    def request_tour_name(default: str | None = None) -> str:
-        """Resolve a requested tour name from query/form with fallback to active tour."""
+    def request_tour_name(default: str | None = None, *, required: bool = False) -> str:
+        """Resolve tour name from request, optionally requiring explicit selection."""
         requested = (request.args.get("tour") or request.form.get("tour") or "").strip()
         if requested:
             return normalize_tour_name(requested)
-        return normalize_tour_name(default or current_tour_name)
+        fallback = (default if default is not None else current_tour_name).strip()
+        if fallback:
+            return normalize_tour_name(fallback)
+        if required:
+            raise ValueError("Select or load a tour first.")
+        return ""
 
     def _set_publish_job(job_id: str, **updates) -> dict:
         with publish_jobs_lock:
@@ -170,8 +174,11 @@ def register_routes(app: Flask) -> None:
             name = normalize_tour_name(body.get("name"))
             payload = body.get("tour")
         else:
-            name = normalize_tour_name(None)
+            name = current_tour_name.strip()
             payload = body if isinstance(body, dict) and "scenes" in body else None
+
+        if not name:
+            return jsonify({"error": "Provide a tour name before saving."}), 400
 
         if payload is not None:
             error = validate_tour_payload(payload)
@@ -218,8 +225,7 @@ def register_routes(app: Flask) -> None:
         nonlocal current_tour, current_tour_name
         closed_name = current_tour_name
         current_tour = get_empty_tour()
-        current_tour_name = normalize_tour_name(None)
-        ensure_tour_asset_dirs(current_tour_name)
+        current_tour_name = ""
         return jsonify({"ok": True, "closed": closed_name, "removedGraphs": 0, "tour": current_tour})
 
     @app.get("/api/tours")
@@ -339,7 +345,10 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "Only jpg, jpeg, png, webp are allowed."}), 400
 
         filename = sanitize_filename(file.filename)
-        target_tour_name = request_tour_name()
+        try:
+            target_tour_name = request_tour_name(required=True)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         target_dir = target_dir_resolver(target_tour_name)
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / filename
@@ -373,6 +382,8 @@ def register_routes(app: Flask) -> None:
     def list_panorama_images():
         """Return available 360 panorama filenames for the requested tour."""
         tour_name = request_tour_name()
+        if not tour_name:
+            return jsonify({"ok": True, "images": [], "tour": ""})
         names = list_panorama_images_for_tour(tour_name)
         return jsonify({"ok": True, "images": names, "tour": tour_name})
 
@@ -380,6 +391,8 @@ def register_routes(app: Flask) -> None:
     def list_2d_images():
         """Return available 2D image filenames for the requested tour."""
         tour_name = request_tour_name()
+        if not tour_name:
+            return jsonify({"ok": True, "images": [], "tour": ""})
         names = list_2d_images_for_tour(tour_name)
         return jsonify({"ok": True, "images": names, "tour": tour_name})
 
@@ -387,6 +400,8 @@ def register_routes(app: Flask) -> None:
     def list_images_legacy():
         """Legacy image listing endpoint retained for compatibility (returns 360 list)."""
         tour_name = request_tour_name()
+        if not tour_name:
+            return jsonify({"ok": True, "images": [], "tour": ""})
         names = list_panorama_images_for_tour(tour_name)
         return jsonify({"ok": True, "images": names, "tour": tour_name})
 
@@ -401,7 +416,10 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "Only .csv files are allowed."}), 400
 
         filename = sanitize_filename(file.filename)
-        tour_name = request_tour_name()
+        try:
+            tour_name = request_tour_name(required=True)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         data_dir = data_dir_for_tour(tour_name)
         data_dir.mkdir(parents=True, exist_ok=True)
         target_path = data_dir / filename
@@ -420,6 +438,8 @@ def register_routes(app: Flask) -> None:
     def list_csv_files():
         """Return available CSV filenames in the requested tour data directory."""
         tour_name = request_tour_name()
+        if not tour_name:
+            return jsonify({"ok": True, "files": [], "tour": ""})
         names = list_csvs_for_tour(tour_name)
         return jsonify({"ok": True, "files": names, "tour": tour_name})
 
@@ -449,7 +469,10 @@ def register_routes(app: Flask) -> None:
     @app.get("/api/graph")
     def get_graph():
         """Generate and return URL for graph image derived from CSV query params."""
-        graph_tour_name = request_tour_name()
+        try:
+            graph_tour_name = request_tour_name(required=True)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         csv_name = (request.args.get("csv") or "").strip()
         x_col = (request.args.get("x") or "").strip()
         y_cols = [value.strip() for value in request.args.getlist("y") if value and value.strip()]

@@ -20,7 +20,7 @@ let csvColumns = [];
 let availableTours = [];
 let availablePanoramaImages = [];
 let available2dImages = [];
-let currentAssetTour = "tour";
+let currentAssetTour = "";
 let activeTourName = "";
 const CREATE_NEW_TOUR_VALUE = "__create_new__";
 let helpWindowRef = null;
@@ -179,7 +179,15 @@ function resolveWriteTourName() {
   if (activeTourName) {
     return activeTourName;
   }
-  return currentAssetTour || "tour";
+  return currentAssetTour || "";
+}
+
+function requireWriteTourName() {
+  const name = resolveWriteTourName();
+  if (!name) {
+    throw new Error("Select or load a tour first.");
+  }
+  return name;
 }
 
 function updateSaveTourUI() {
@@ -244,7 +252,7 @@ async function refreshImageList(preferredImage = "", preferredHotspotImage = "",
     throw new Error(image2dBody.error || "Failed to fetch 2D image list.");
   }
 
-  currentAssetTour = panoramaBody.tour || image2dBody.tour || currentAssetTour;
+  currentAssetTour = String(panoramaBody.tour || image2dBody.tour || "").trim();
   availablePanoramaImages = Array.isArray(panoramaBody.images) ? panoramaBody.images : [];
   available2dImages = Array.isArray(image2dBody.images) ? image2dBody.images : [];
   setSelectOptions(
@@ -290,7 +298,7 @@ async function fetchCsvFiles(tourName = "") {
   if (!response.ok) {
     throw new Error(body.error || "Failed to fetch CSV list.");
   }
-  currentAssetTour = body.tour || currentAssetTour;
+  currentAssetTour = String(body.tour || "").trim();
   return Array.isArray(body.files) ? body.files : [];
 }
 
@@ -1377,6 +1385,7 @@ function setStatus(msg, isError = false) {
 function updateCurrentTourName(name) {
   const normalized = String(name || "").trim();
   activeTourName = normalized;
+  currentAssetTour = normalized;
   el.currentTourName.textContent = normalized || "(none)";
 }
 
@@ -1728,9 +1737,18 @@ function setupEvents() {
       return;
     }
 
+    let targetTour = "";
+    try {
+      targetTour = requireWriteTourName();
+    } catch (error) {
+      el.sceneImageResult.textContent = error.message;
+      setStatus(error.message, true);
+      return;
+    }
+
     const data = new FormData();
     data.append("image", file);
-    data.append("tour", resolveWriteTourName());
+    data.append("tour", targetTour);
 
     const response = await fetch("/api/upload_360", {
       method: "POST",
@@ -1745,7 +1763,7 @@ function setupEvents() {
 
     el.sceneImageResult.textContent = `Uploaded: ${body.filename}`;
     try {
-      await refreshImageList(body.filename, "", body.tour || resolveWriteTourName());
+      await refreshImageList(body.filename, "", body.tour || targetTour);
       updateSceneUploadUI();
     } catch (_error) {
       setStatus("Image uploaded, but failed to refresh image list.", true);
@@ -1760,9 +1778,18 @@ function setupEvents() {
       return;
     }
 
+    let targetTour = "";
+    try {
+      targetTour = requireWriteTourName();
+    } catch (error) {
+      el.hotspotImageResult.textContent = error.message;
+      setStatus(error.message, true);
+      return;
+    }
+
     const data = new FormData();
     data.append("image", file);
-    data.append("tour", resolveWriteTourName());
+    data.append("tour", targetTour);
 
     const response = await fetch("/api/upload_2d", {
       method: "POST",
@@ -1777,7 +1804,7 @@ function setupEvents() {
 
     el.hotspotImageResult.textContent = `Uploaded: ${body.filename}`;
     try {
-      await refreshImageList("", body.filename, body.tour || resolveWriteTourName());
+      await refreshImageList("", body.filename, body.tour || targetTour);
       updateHotspotModeUI();
     } catch (_error) {
       setStatus("Image uploaded, but failed to refresh image list.", true);
@@ -1908,9 +1935,9 @@ function setupEvents() {
     updateCurrentTourName("");
     const removedGraphs = Number(body.removedGraphs || 0);
     if (removedGraphs > 0) {
-      setStatus(`Closed tour '${body.closed || "tour"}' and cleared ${removedGraphs} stale cached graphs.`);
+      setStatus(`Closed tour '${body.closed || "(none)"}' and cleared ${removedGraphs} stale cached graphs.`);
     } else {
-      setStatus(`Closed tour '${body.closed || "tour"}'. Graph cache preserved for faster reopen.`);
+      setStatus(`Closed tour '${body.closed || "(none)"}'. Graph cache preserved for faster reopen.`);
     }
   });
 
@@ -1954,9 +1981,18 @@ function setupEvents() {
       return;
     }
 
+    let targetTour = "";
+    try {
+      targetTour = requireWriteTourName();
+    } catch (error) {
+      el.csvUploadResult.textContent = error.message;
+      setStatus(error.message, true);
+      return;
+    }
+
     const data = new FormData();
     data.append("datafile", file);
-    data.append("tour", resolveWriteTourName());
+    data.append("tour", targetTour);
 
     const response = await fetch("/api/upload_csv", {
       method: "POST",
@@ -1971,7 +2007,7 @@ function setupEvents() {
 
     el.csvUploadResult.textContent = `Uploaded: ${body.filename}`;
     try {
-      await refreshCsvSelects(body.filename, "", [], body.tour || resolveWriteTourName());
+      await refreshCsvSelects(body.filename, "", [], body.tour || targetTour);
       updateHotspotModeUI();
     } catch (_error) {
       setStatus("CSV uploaded, but failed to refresh CSV dropdowns.", true);
