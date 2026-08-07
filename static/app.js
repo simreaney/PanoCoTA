@@ -171,6 +171,7 @@ const el = {
   publishOwnerType: document.getElementById("publish-owner-type"),
   publishBranch: document.getElementById("publish-branch"),
   publishToken: document.getElementById("publish-token"),
+  publishPages: document.getElementById("publish-pages"),
   publishPrivate: document.getElementById("publish-private"),
   publishTourButton: document.getElementById("publish-tour"),
   publishResult: document.getElementById("publish-result"),
@@ -2109,6 +2110,7 @@ function setupEvents() {
     const branch = (el.publishBranch.value || "main").trim() || "main";
     const githubToken = (el.publishToken.value || "").trim();
     const isOrg = (el.publishOwnerType.value || "user") === "org";
+    const publishPages = Boolean(el.publishPages.checked);
     const privateRepo = Boolean(el.publishPrivate.checked);
 
     if (!owner) {
@@ -2168,6 +2170,7 @@ function setupEvents() {
           repo,
           githubToken,
           githubOrg: isOrg,
+          publishPages,
           privateRepo,
           branch,
         }),

@@ -110,6 +110,7 @@ def register_routes(app: Flask) -> None:
                 branch=payload["branch"],
                 private_repo=payload["private_repo"],
                 github_org=payload["github_org"],
+                configure_pages=payload["publish_pages"],
                 progress=_progress,
             )
             _set_publish_job(
@@ -286,6 +287,7 @@ def register_routes(app: Flask) -> None:
         repo = str(body.get("repo") or "").strip()
         branch = str(body.get("branch") or "main").strip() or "main"
         github_org = bool(body.get("githubOrg"))
+        publish_pages = bool(body.get("publishPages", True))
         private_repo = bool(body.get("privateRepo"))
 
         if not owner:
@@ -324,6 +326,7 @@ def register_routes(app: Flask) -> None:
             "branch": branch,
             "private_repo": private_repo,
             "github_org": github_org,
+            "publish_pages": publish_pages,
         }
         thread = threading.Thread(target=_publish_worker, args=(job_id, thread_payload), daemon=True)
         thread.start()

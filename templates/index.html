@@ -237,7 +237,7 @@
             GitHub Token (one-time)
             <input id="publish-token" type="password" placeholder="ghp_... or github_pat_..." autocomplete="off" />
           </label>
-          <div class="publish-warning">Warning: exported GitHub Pages bundles can still hit file size limits if stale or oversized generated assets remain in the export path. This is being addressed, and the publish flow now tries to block that failure mode before the push.</div>
+          <label class="publish-private-label"><input id="publish-pages" type="checkbox" checked /> Publish via GitHub Pages</label>
           <label class="publish-private-label"><input id="publish-private" type="checkbox" /> Create private repository</label>
           <button id="publish-tour">Export and Publish</button>
           <p id="publish-result" class="micro"></p>

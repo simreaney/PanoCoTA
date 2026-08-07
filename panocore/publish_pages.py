@@ -483,9 +483,10 @@ def export_and_publish(
     commit_message: str = "Publish static PanoCoTA tour package",
     private_repo: bool = False,
     github_org: bool = False,
+    configure_pages: bool = True,
     progress: ProgressCallback | None = None,
 ) -> tuple[list[str], str, str | None, str | None]:
-    """Export tours, push static bundle, and configure Pages branch deployment."""
+    """Export tours, push static bundle, and optionally configure Pages deployment."""
     _emit_progress(progress, 1, "Exporting static tour bundle...")
     exported = export_pages(tours, merge_existing=False, progress=lambda pct, msg: _emit_progress(progress, round(pct * 0.70), msg))
     if not exported:
@@ -499,8 +500,12 @@ def export_and_publish(
     _ensure_remote_repo(owner, repo_name, token, private=private_repo, as_org=github_org)
     _emit_progress(progress, 85, "Pushing static bundle to GitHub...")
     _publish_bundle_to_repo(owner, repo_name, token, branch=branch, commit_message=commit_message)
-    _emit_progress(progress, 95, "Configuring GitHub Pages...")
-    pages_url, pages_warning = _configure_pages_branch_source(owner, repo_name, token, branch)
+    if configure_pages:
+        _emit_progress(progress, 95, "Configuring GitHub Pages...")
+        pages_url, pages_warning = _configure_pages_branch_source(owner, repo_name, token, branch)
+    else:
+        _emit_progress(progress, 95, "Skipping GitHub Pages configuration.")
+        pages_url, pages_warning = None, None
     _emit_progress(progress, 100, "Publish complete.")
     return exported, repo_name, pages_url, pages_warning
 
