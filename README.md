@@ -22,6 +22,8 @@ This README is a practical step-by-step guide for first use.
 
 2. Create and activate a virtual environment.
 
+Use Python 3.13.x for the virtual environment. Python 3.14 is not supported yet.
+
 Windows PowerShell:
 
 ```powershell
@@ -47,6 +49,14 @@ pip install -r requirements.txt
 ```bash
 python panocota.py
 ```
+
+This starts in quiet mode by default (reduced console output, debug/reloader off).
+
+Optional environment flags:
+
+- `PANOCOTA_DEBUG=1` enables Flask debug mode.
+- `PANOCOTA_RELOAD=1` enables auto-reload.
+- `PANOCOTA_VERBOSE=1` enables verbose request/startup logging.
 
 5. Open the UI.
 
@@ -212,3 +222,8 @@ Multi-tour published mode:
 ## License
 
 MIT. See LICENSE.
+
+## Contributors
+
+- Aaron Neill
+- GitHub Copilot
