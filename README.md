@@ -221,7 +221,7 @@ Multi-tour published mode:
 
 ## License
 
-MIT. See LICENSE.
+GNU GPL v3.0. See LICENSE.
 
 ## Contributors
 
