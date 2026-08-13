@@ -18,8 +18,13 @@ const el = {
   tourSelect: document.getElementById("tour-select"),
   refreshTours: document.getElementById("refresh-tours"),
   loadTour: document.getElementById("load-tour"),
+  exitTour: document.getElementById("exit-tour"),
   status: document.getElementById("status"),
 };
+
+function setStage(stage) {
+  document.body.dataset.stage = stage;
+}
 
 function setStatus(msg, isError = false) {
   el.status.textContent = msg;
@@ -38,12 +43,34 @@ function asTruthy(value) {
   return text === "true" || text === "1" || text === "yes" || text === "on";
 }
 
+function getViewerMode() {
+  return document.body?.dataset?.viewerMode === "published" ? "published" : "app";
+}
+
+function isPublishedViewerMode() {
+  return getViewerMode() === "published";
+}
+
+function isTouchLikeInteraction() {
+  if (typeof window.matchMedia === "function") {
+    return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+  }
+  return Boolean(window.ontouchstart) || navigator.maxTouchPoints > 0;
+}
+
 function positionPromptCard(wrap, prompt) {
   const viewportPadding = 8;
-  const gap = 34;
+  const gap = 24;
   const isMediaPrompt =
     prompt.classList.contains("prompt-card--graph") ||
     prompt.classList.contains("prompt-card--image");
+
+  if (isTouchLikeInteraction()) {
+    prompt.style.left = "50%";
+    prompt.style.top = "-8px";
+    prompt.style.transform = "translate(-50%, -100%)";
+    return;
+  }
 
   const wrapRect = wrap.getBoundingClientRect();
   const promptRect = prompt.getBoundingClientRect();
@@ -52,7 +79,7 @@ function positionPromptCard(wrap, prompt) {
   const viewerRect = document.getElementById("viewer")?.getBoundingClientRect();
 
   let left = gap;
-  let top = 34;
+  let top = 8;
 
   if (isMediaPrompt && viewerRect) {
     top = (viewerRect.top + (viewerRect.height / 2)) - wrapRect.top - (promptRect.height / 2);
@@ -102,6 +129,15 @@ function createHotspotDom(hotSpotDiv, args) {
     const prompt = document.createElement("div");
     prompt.className = `prompt-card prompt-card--${kind}`;
     const promptText = document.createElement("div");
+    const showPromptCard = () => {
+      wrap.classList.add("is-active");
+      positionPromptCard(wrap, prompt);
+      prompt.classList.add("is-visible");
+    };
+    const hidePromptCard = () => {
+      wrap.classList.remove("is-active");
+      prompt.classList.remove("is-visible");
+    };
     promptText.textContent =
       (kind === "text" || kind === "textLink" ? args.prompt || args.text : args.text || args.prompt) ||
       (kind === "graph"
@@ -146,8 +182,22 @@ function createHotspotDom(hotSpotDiv, args) {
         graphContainer.replaceChildren();
         graphContainer.textContent = "Loading graph...";
       };
-      wrap.addEventListener("mouseenter", async () => {
+      const loadGraphPreview = async () => {
         positionPromptCard(wrap, prompt);
+
+        const graphPath = String(args.graph.path || "").trim();
+        if (graphPath) {
+          graphContainer.replaceChildren();
+          const img = document.createElement("img");
+          img.className = "graph-preview";
+          img.alt = "Pre-rendered graph";
+          img.src = `${graphPath}?t=${Date.now()}`;
+          img.addEventListener("load", () => {
+            positionPromptCard(wrap, prompt);
+          });
+          graphContainer.appendChild(img);
+          return;
+        }
 
         const yColumns = Array.isArray(args.graph.yColumns)
           ? args.graph.yColumns.filter((value) => Boolean(String(value || "").trim()))
@@ -207,6 +257,11 @@ function createHotspotDom(hotSpotDiv, args) {
         graphContainer.textContent = "Loading graph...";
 
         try {
+          if (isPublishedViewerMode()) {
+            graphContainer.textContent = "Graph preview unavailable.";
+            return;
+          }
+
           const response = await fetch(`/api/viewer/graph?${query.toString()}`);
           const body = await response.json();
           if (!response.ok) {
@@ -227,10 +282,16 @@ function createHotspotDom(hotSpotDiv, args) {
         } catch (_error) {
           graphContainer.textContent = "Graph request failed.";
         }
+      };
+
+      wrap.addEventListener("mouseenter", async () => {
+        showPromptCard();
+        await loadGraphPreview();
       });
 
       wrap.addEventListener("mouseleave", () => {
         resetGraphPreview();
+        hidePromptCard();
       });
     } else if (kind === "image" && args.image) {
       prompt.classList.add("prompt-card--image");
@@ -263,11 +324,29 @@ function createHotspotDom(hotSpotDiv, args) {
       prompt.appendChild(imageContainer);
 
       wrap.addEventListener("mouseenter", () => {
-        positionPromptCard(wrap, prompt);
+        showPromptCard();
+      });
+      wrap.addEventListener("mouseleave", () => {
+        hidePromptCard();
       });
     } else {
       wrap.addEventListener("mouseenter", () => {
-        positionPromptCard(wrap, prompt);
+        showPromptCard();
+      });
+      wrap.addEventListener("mouseleave", () => {
+        hidePromptCard();
+      });
+    }
+
+    if (isTouchLikeInteraction() && kind !== "scene") {
+      wrap.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (wrap.classList.contains("is-active")) {
+          hidePromptCard();
+          return;
+        }
+        showPromptCard();
       });
     }
 
@@ -362,7 +441,26 @@ function renderViewer() {
   viewer = pannellum.viewer("viewer", config);
 }
 
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
 async function fetchTours() {
+  if (isPublishedViewerMode()) {
+    const body = await fetchJson("published/tours.json");
+    if (Array.isArray(body)) {
+      return body;
+    }
+    if (Array.isArray(body.tours)) {
+      return body.tours;
+    }
+    throw new Error(body.error || "Failed to fetch tours.");
+  }
+
   const response = await fetch("/api/viewer/tours");
   const body = await response.json();
   if (!response.ok) {
@@ -372,6 +470,17 @@ async function fetchTours() {
 }
 
 async function fetchTour(name) {
+  if (isPublishedViewerMode()) {
+    const body = await fetchJson(`published/tours/${encodeURIComponent(name)}/tour.json`);
+    if (body && typeof body === "object" && body.error) {
+      throw new Error(body.error);
+    }
+    return {
+      name,
+      tour: body || {},
+    };
+  }
+
   const query = new URLSearchParams({ name });
   const response = await fetch(`/api/viewer/tour?${query.toString()}`);
   const body = await response.json();
@@ -385,7 +494,6 @@ async function refreshTourList(preferred = "") {
   const tours = await fetchTours();
   if (tours.length === 0) {
     el.tourSelect.innerHTML = "";
-    renderEmpty("No saved tours found. Create and save one in the editor first.");
     setStatus("No saved tours found.", true);
     return [];
   }
@@ -412,11 +520,22 @@ async function loadSelectedTour() {
     if (!tour.scenes) {
       tour.scenes = {};
     }
+    // Pannellum needs a laid-out container, so reveal the stage before rendering.
+    setStage("tour");
     renderViewer();
     setStatus(`Loaded tour '${activeTourName}'.`);
   } catch (error) {
     setStatus(error.message || "Failed to load selected tour.", true);
   }
+}
+
+function exitTour() {
+  if (viewer) {
+    viewer.destroy();
+    viewer = null;
+  }
+  document.getElementById("viewer").innerHTML = "";
+  setStage("select");
 }
 
 function setupEvents() {
@@ -435,19 +554,19 @@ function setupEvents() {
   el.loadTour.addEventListener("click", async () => {
     await loadSelectedTour();
   });
+
+  el.exitTour.addEventListener("click", exitTour);
 }
 
 async function boot() {
   try {
-    renderEmpty("Loading saved tours...");
     const tours = await refreshTourList();
     setupEvents();
     if (tours.length > 0) {
-      await loadSelectedTour();
+      setStatus("Select a tour and choose View Tour.");
     }
   } catch (_error) {
     setStatus("Failed to initialize viewer.", true);
-    renderEmpty("Unable to initialize viewer.");
   }
 }
 

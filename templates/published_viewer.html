@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PanoCoTA Viewer</title>
+    <title>PanoCoTA Tour Viewer</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css"
@@ -12,40 +12,33 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
     />
-    <link rel="stylesheet" href="{{ url_for('static', filename='viewer.css', v='20260813a') }}" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='hotspot-overlays.css', v='20260813a') }}" />
+    <link rel="stylesheet" href="viewer.css?v=20260813a" />
+    <link rel="stylesheet" href="hotspot-overlays.css?v=20260813a" />
   </head>
-  <body data-viewer-mode="app" data-stage="select">
+  <body data-viewer-mode="published" data-stage="select">
     <main class="stage stage--select">
       <div class="landing">
-        <a class="brand-logo-link" href="#logo-modal" aria-label="Open larger PanoCoTA logo">
-          <img
-            class="brand-logo"
-            src="{{ url_for('static', filename='branding/panocota_logo.png') }}"
-            alt="PanoCoTA logo"
-          />
-        </a>
         <h1>PanoCoTA Viewer</h1>
-        <p class="subtitle">Read-only local tour viewer</p>
+        <p class="subtitle">Static viewer for published tours</p>
 
         <section class="section-block">
           <h2>Choose a tour</h2>
           <label>
-            Saved Tours
+            Published Tours
             <select id="tour-select"></select>
           </label>
           <button id="load-tour" class="primary">View Tour</button>
-          <button id="refresh-tours">Refresh Tour List</button>
+          <button id="refresh-tours">Refresh List</button>
           <p id="status" class="micro"></p>
         </section>
 
-        <section class="section-block">
-          <h2>How to use the viewer</h2>
+        <section class="section-block" aria-labelledby="viewer-help-title">
+          <h2 id="viewer-help-title">Navigation</h2>
           <ul class="viewer-help-list">
             <li>Drag the panorama to look around and explore the scene.</li>
             <li>Use your mouse wheel or trackpad scroll to zoom in and out.</li>
-            <li>Clicking (or tapping on a mobile device) a "Scene link" hotspot will move you to another scene. They must also be used to return to a previous scene.</li>
-            <li>Hovering over (or tapping on a mobile device) other hotspot types reveals additional content.</li>
+            <li>Clicking or tapping a scene-link hotspot moves you to another scene and can also take you back to a previous one.</li>
+            <li>Hovering over other hotspots on a desktop, or tapping them on a touch screen, reveals additional content.</li>
           </ul>
         </section>
       </div>
@@ -81,15 +74,7 @@
       </div>
     </main>
 
-    <div id="logo-modal" class="logo-modal" aria-hidden="true">
-      <a class="logo-modal-backdrop" href="#" aria-label="Close enlarged logo"></a>
-      <div class="logo-modal-content" role="dialog" aria-modal="true" aria-label="Enlarged PanoCoTA logo">
-        <a class="logo-modal-close" href="#" aria-label="Close">&times;</a>
-        <img class="logo-modal-image" src="{{ url_for('static', filename='branding/panocota_logo.png') }}" alt="Enlarged PanoCoTA logo" />
-      </div>
-    </div>
-
     <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
-    <script src="{{ url_for('static', filename='viewer.js', v='20260813b') }}"></script>
+    <script src="viewer.js?v=20260813b"></script>
   </body>
 </html>

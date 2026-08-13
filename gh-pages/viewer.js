@@ -1,85 +1,29 @@
 let viewer = null;
 let activeTourName = "";
 let tour = null;
-let isSingleTourMode = false;
+const SUBPLOT_COLOR_OPTIONS = [
+  "red",
+  "blue",
+  "green",
+  "orange",
+  "purple",
+  "teal",
+  "brown",
+  "black",
+  "gray",
+  "pink",
+];
 
 const el = {
   tourSelect: document.getElementById("tour-select"),
   refreshTours: document.getElementById("refresh-tours"),
   loadTour: document.getElementById("load-tour"),
+  exitTour: document.getElementById("exit-tour"),
   status: document.getElementById("status"),
 };
 
-function applySingleTourMode(enabled) {
-  isSingleTourMode = Boolean(enabled);
-  document.body.classList.toggle("single-tour-mode", isSingleTourMode);
-
-  const layout = document.querySelector(".layout");
-  const panel = document.querySelector(".panel");
-  const viewerWrap = document.querySelector(".viewer-wrap");
-  const brand = document.querySelector(".viewer-brand");
-  const viewerNode = document.getElementById("viewer");
-
-  if (isSingleTourMode) {
-    if (layout) {
-      layout.style.gridTemplateColumns = "1fr";
-    }
-    if (panel) {
-      panel.style.display = "none";
-    }
-    if (viewerWrap) {
-      viewerWrap.style.display = "grid";
-      viewerWrap.style.gridTemplateRows = "auto 1fr";
-      viewerWrap.style.gap = "8px";
-      viewerWrap.style.padding = "10px";
-      viewerWrap.style.border = "4px solid rgba(28, 42, 34, 0.72)";
-      viewerWrap.style.background = "rgba(17, 24, 19, 0.72)";
-      viewerWrap.style.boxShadow = "0 10px 28px rgba(13, 22, 18, 0.28)";
-    }
-    if (brand) {
-      brand.style.display = "block";
-      brand.style.position = "relative";
-      brand.style.top = "auto";
-      brand.style.left = "auto";
-      brand.style.margin = "0";
-    }
-    if (viewerNode) {
-      viewerNode.style.height = "100%";
-      viewerNode.style.minHeight = "0";
-      viewerNode.style.borderRadius = "12px";
-      viewerNode.style.overflow = "hidden";
-    }
-    return;
-  }
-
-  if (layout) {
-    layout.style.gridTemplateColumns = "";
-  }
-  if (panel) {
-    panel.style.display = "";
-  }
-  if (viewerWrap) {
-    viewerWrap.style.display = "";
-    viewerWrap.style.gridTemplateRows = "";
-    viewerWrap.style.gap = "";
-    viewerWrap.style.padding = "";
-    viewerWrap.style.border = "";
-    viewerWrap.style.background = "";
-    viewerWrap.style.boxShadow = "";
-  }
-  if (brand) {
-    brand.style.display = "";
-    brand.style.position = "";
-    brand.style.top = "";
-    brand.style.left = "";
-    brand.style.margin = "";
-  }
-  if (viewerNode) {
-    viewerNode.style.height = "";
-    viewerNode.style.minHeight = "";
-    viewerNode.style.borderRadius = "";
-    viewerNode.style.overflow = "";
-  }
+function setStage(stage) {
+  document.body.dataset.stage = stage;
 }
 
 function setStatus(msg, isError = false) {
@@ -91,12 +35,42 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(value, max));
 }
 
+function asTruthy(value) {
+  if (value === true || value === 1) {
+    return true;
+  }
+  const text = String(value || "").trim().toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "on";
+}
+
+function getViewerMode() {
+  return document.body?.dataset?.viewerMode === "published" ? "published" : "app";
+}
+
+function isPublishedViewerMode() {
+  return getViewerMode() === "published";
+}
+
+function isTouchLikeInteraction() {
+  if (typeof window.matchMedia === "function") {
+    return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+  }
+  return Boolean(window.ontouchstart) || navigator.maxTouchPoints > 0;
+}
+
 function positionPromptCard(wrap, prompt) {
   const viewportPadding = 8;
-  const gap = 34;
+  const gap = 24;
   const isMediaPrompt =
     prompt.classList.contains("prompt-card--graph") ||
     prompt.classList.contains("prompt-card--image");
+
+  if (isTouchLikeInteraction()) {
+    prompt.style.left = "50%";
+    prompt.style.top = "-8px";
+    prompt.style.transform = "translate(-50%, -100%)";
+    return;
+  }
 
   const wrapRect = wrap.getBoundingClientRect();
   const promptRect = prompt.getBoundingClientRect();
@@ -105,10 +79,9 @@ function positionPromptCard(wrap, prompt) {
   const viewerRect = document.getElementById("viewer")?.getBoundingClientRect();
 
   let left = gap;
-  let top = -14;
+  let top = 8;
 
   if (isMediaPrompt && viewerRect) {
-    // Keep large media cards centered vertically in the panorama for consistent readability.
     top = (viewerRect.top + (viewerRect.height / 2)) - wrapRect.top - (promptRect.height / 2);
   }
 
@@ -156,6 +129,15 @@ function createHotspotDom(hotSpotDiv, args) {
     const prompt = document.createElement("div");
     prompt.className = `prompt-card prompt-card--${kind}`;
     const promptText = document.createElement("div");
+    const showPromptCard = () => {
+      wrap.classList.add("is-active");
+      positionPromptCard(wrap, prompt);
+      prompt.classList.add("is-visible");
+    };
+    const hidePromptCard = () => {
+      wrap.classList.remove("is-active");
+      prompt.classList.remove("is-visible");
+    };
     promptText.textContent =
       (kind === "text" || kind === "textLink" ? args.prompt || args.text : args.text || args.prompt) ||
       (kind === "graph"
@@ -191,6 +173,7 @@ function createHotspotDom(hotSpotDiv, args) {
       prompt.style.setProperty("--graph-card-width", `${cardWidth}px`);
       const graphContainer = document.createElement("div");
       graphContainer.className = "graph-container";
+      graphContainer.textContent = "Loading graph...";
       prompt.appendChild(graphContainer);
 
       let lastQueryKey = "";
@@ -199,29 +182,116 @@ function createHotspotDom(hotSpotDiv, args) {
         graphContainer.replaceChildren();
         graphContainer.textContent = "Loading graph...";
       };
-
-      const graphPath = String(args.graph.path || "").trim();
-      wrap.addEventListener("mouseenter", () => {
+      const loadGraphPreview = async () => {
         positionPromptCard(wrap, prompt);
-        if (!graphPath) {
-          graphContainer.textContent = "No pre-rendered graph asset found.";
+
+        const graphPath = String(args.graph.path || "").trim();
+        if (graphPath) {
+          graphContainer.replaceChildren();
+          const img = document.createElement("img");
+          img.className = "graph-preview";
+          img.alt = "Pre-rendered graph";
+          img.src = `${graphPath}?t=${Date.now()}`;
+          img.addEventListener("load", () => {
+            positionPromptCard(wrap, prompt);
+          });
+          graphContainer.appendChild(img);
           return;
         }
-        if (graphContainer.querySelector("img")) {
-          return;
-        }
-        graphContainer.replaceChildren();
-        const img = document.createElement("img");
-        img.className = "graph-preview";
-        img.alt = "Pre-rendered graph";
-        img.src = `${graphPath}?t=${Date.now()}`;
-        img.addEventListener("load", () => {
-          positionPromptCard(wrap, prompt);
+
+        const yColumns = Array.isArray(args.graph.yColumns)
+          ? args.graph.yColumns.filter((value) => Boolean(String(value || "").trim()))
+          : [args.graph.y].filter((value) => Boolean(String(value || "").trim()));
+        const subplotTypes = Array.isArray(args.graph.subplotTypes)
+          ? args.graph.subplotTypes.map((value) => String(value || "line").trim().toLowerCase())
+          : [];
+        const subplotColors = Array.isArray(args.graph.subplotColors)
+          ? args.graph.subplotColors.map((value) => String(value || "").trim().toLowerCase())
+          : [];
+        const invertedBars = Array.isArray(args.graph.invertedBars)
+          ? args.graph.invertedBars.map((value) => asTruthy(value))
+          : [];
+        const yAxisLabels = Array.isArray(args.graph.yAxisLabels)
+          ? args.graph.yAxisLabels.map((value) => String(value ?? "").trim())
+          : [];
+
+        const query = new URLSearchParams({
+          name: activeTourName,
+          csv: args.graph.csv || "",
+          animate: String(args.graph.animate === true || args.graph.animate === "true"),
         });
-        graphContainer.appendChild(img);
+
+        const subplots = Number.parseInt(args.graph.subplots, 10);
+        const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 3) : clamp(yColumns.length || 1, 1, 3);
+        query.set("subplots", String(subplotCount));
+        yColumns.slice(0, subplotCount).forEach((columnName) => {
+          query.append("y", columnName);
+        });
+        for (let idx = 0; idx < subplotCount; idx += 1) {
+          query.append("plotType", subplotTypes[idx] || "line");
+          query.append("color", subplotColors[idx] || SUBPLOT_COLOR_OPTIONS[idx % SUBPLOT_COLOR_OPTIONS.length]);
+          query.append("invertBar", invertedBars[idx] ? "true" : "false");
+          query.append("yAxisLabel", yAxisLabels[idx] || "");
+        }
+        if (args.graph.x) {
+          query.set("x", args.graph.x);
+        }
+        if (args.graph.yLabel) {
+          query.set("yLabel", args.graph.yLabel);
+        }
+        if (args.graph.yUnit) {
+          query.set("yUnit", args.graph.yUnit);
+        }
+        const requestedRenderer = String(args.graph.renderer || "").trim().toLowerCase();
+        if (subplotCount > 1) {
+          query.set("renderer", "matplotlib");
+        } else if (requestedRenderer) {
+          query.set("renderer", requestedRenderer);
+        }
+
+        const queryKey = query.toString();
+        if (queryKey === lastQueryKey && graphContainer.querySelector("img")) {
+          return;
+        }
+        lastQueryKey = queryKey;
+        graphContainer.textContent = "Loading graph...";
+
+        try {
+          if (isPublishedViewerMode()) {
+            graphContainer.textContent = "Graph preview unavailable.";
+            return;
+          }
+
+          const response = await fetch(`/api/viewer/graph?${query.toString()}`);
+          const body = await response.json();
+          if (!response.ok) {
+            graphContainer.textContent = body.error || "Failed to generate graph.";
+            return;
+          }
+
+          const img = document.createElement("img");
+          img.className = "graph-preview";
+          img.alt = "Generated timeseries graph";
+          img.src = `${body.path}?t=${Date.now()}`;
+          img.addEventListener("load", () => {
+            positionPromptCard(wrap, prompt);
+          });
+
+          graphContainer.innerHTML = "";
+          graphContainer.appendChild(img);
+        } catch (_error) {
+          graphContainer.textContent = "Graph request failed.";
+        }
+      };
+
+      wrap.addEventListener("mouseenter", async () => {
+        showPromptCard();
+        await loadGraphPreview();
       });
+
       wrap.addEventListener("mouseleave", () => {
         resetGraphPreview();
+        hidePromptCard();
       });
     } else if (kind === "image" && args.image) {
       prompt.classList.add("prompt-card--image");
@@ -229,12 +299,13 @@ function createHotspotDom(hotSpotDiv, args) {
       const imageContainer = document.createElement("div");
       imageContainer.className = "image-container";
 
-      const imagePath = String(args.image.path || "").trim();
+      const imagePath =
+        args.image.path || (args.image.file ? `/images2d/${activeTourName}/${args.image.file}` : "");
       if (imagePath) {
         const img = document.createElement("img");
         img.className = "image-preview";
         img.alt = "Hotspot image preview";
-        img.src = imagePath;
+        img.src = `${imagePath}?t=${Date.now()}`;
         img.addEventListener("load", () => {
           positionPromptCard(wrap, prompt);
         });
@@ -253,11 +324,29 @@ function createHotspotDom(hotSpotDiv, args) {
       prompt.appendChild(imageContainer);
 
       wrap.addEventListener("mouseenter", () => {
-        positionPromptCard(wrap, prompt);
+        showPromptCard();
+      });
+      wrap.addEventListener("mouseleave", () => {
+        hidePromptCard();
       });
     } else {
       wrap.addEventListener("mouseenter", () => {
-        positionPromptCard(wrap, prompt);
+        showPromptCard();
+      });
+      wrap.addEventListener("mouseleave", () => {
+        hidePromptCard();
+      });
+    }
+
+    if (isTouchLikeInteraction() && kind !== "scene") {
+      wrap.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (wrap.classList.contains("is-active")) {
+          hidePromptCard();
+          return;
+        }
+        showPromptCard();
       });
     }
 
@@ -352,47 +441,60 @@ function renderViewer() {
   viewer = pannellum.viewer("viewer", config);
 }
 
-async function fetchManifest() {
-  const response = await fetch("published/tours.json", { cache: "no-store" });
+async function fetchJson(url) {
+  const response = await fetch(url);
   if (!response.ok) {
-    throw new Error("Could not load published/tours.json.");
-  }
-  const body = await response.json();
-  return Array.isArray(body.tours) ? body.tours : [];
-}
-
-async function fetchTour(name) {
-  const response = await fetch(`published/tours/${encodeURIComponent(name)}/tour.json`, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Could not load tour '${name}'.`);
+    throw new Error(`Request failed with status ${response.status}`);
   }
   return response.json();
 }
 
-function getTourFromQuery() {
-  const params = new URLSearchParams(window.location.search);
-  return (params.get("tour") || "").trim();
+async function fetchTours() {
+  if (isPublishedViewerMode()) {
+    const body = await fetchJson("published/tours.json");
+    if (Array.isArray(body)) {
+      return body;
+    }
+    if (Array.isArray(body.tours)) {
+      return body.tours;
+    }
+    throw new Error(body.error || "Failed to fetch tours.");
+  }
+
+  const response = await fetch("/api/viewer/tours");
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body.error || "Failed to fetch tours.");
+  }
+  return Array.isArray(body.tours) ? body.tours : [];
 }
 
-function updateQueryTour(name) {
-  if (isSingleTourMode) {
-    return;
+async function fetchTour(name) {
+  if (isPublishedViewerMode()) {
+    const body = await fetchJson(`published/tours/${encodeURIComponent(name)}/tour.json`);
+    if (body && typeof body === "object" && body.error) {
+      throw new Error(body.error);
+    }
+    return {
+      name,
+      tour: body || {},
+    };
   }
-  const url = new URL(window.location.href);
-  if (name) {
-    url.searchParams.set("tour", name);
-  } else {
-    url.searchParams.delete("tour");
+
+  const query = new URLSearchParams({ name });
+  const response = await fetch(`/api/viewer/tour?${query.toString()}`);
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body.error || "Failed to load selected tour.");
   }
-  window.history.replaceState({}, "", url);
+  return body;
 }
 
 async function refreshTourList(preferred = "") {
-  const tours = await fetchManifest();
+  const tours = await fetchTours();
   if (tours.length === 0) {
     el.tourSelect.innerHTML = "";
-    renderEmpty("No published tours found. Run export_github_pages.py first.");
-    setStatus("No published tours found.", true);
+    setStatus("No saved tours found.", true);
     return [];
   }
 
@@ -405,25 +507,35 @@ async function refreshTourList(preferred = "") {
 async function loadSelectedTour() {
   const name = (el.tourSelect.value || "").trim();
   if (!name) {
-    setStatus("Select a tour first.", true);
+    setStatus("Select a saved tour first.", true);
     return;
   }
-
   try {
-    tour = await fetchTour(name);
-    activeTourName = name;
+    const payload = await fetchTour(name);
+    activeTourName = payload.name || name;
+    tour = payload.tour || {};
     if (!tour.meta) {
       tour.meta = {};
     }
     if (!tour.scenes) {
       tour.scenes = {};
     }
+    // Pannellum needs a laid-out container, so reveal the stage before rendering.
+    setStage("tour");
     renderViewer();
-    updateQueryTour(name);
-    setStatus(`Loaded tour '${name}'.`);
+    setStatus(`Loaded tour '${activeTourName}'.`);
   } catch (error) {
     setStatus(error.message || "Failed to load selected tour.", true);
   }
+}
+
+function exitTour() {
+  if (viewer) {
+    viewer.destroy();
+    viewer = null;
+  }
+  document.getElementById("viewer").innerHTML = "";
+  setStage("select");
 }
 
 function setupEvents() {
@@ -442,21 +554,19 @@ function setupEvents() {
   el.loadTour.addEventListener("click", async () => {
     await loadSelectedTour();
   });
+
+  el.exitTour.addEventListener("click", exitTour);
 }
 
 async function boot() {
   try {
-    renderEmpty("Loading published tours...");
-    const requestedTour = getTourFromQuery();
-    const tours = await refreshTourList(requestedTour);
-    applySingleTourMode(tours.length === 1);
+    const tours = await refreshTourList();
     setupEvents();
     if (tours.length > 0) {
-      await loadSelectedTour();
+      setStatus("Select a tour and choose View Tour.");
     }
   } catch (_error) {
     setStatus("Failed to initialize viewer.", true);
-    renderEmpty("Viewer initialization failed.");
   }
 }
 

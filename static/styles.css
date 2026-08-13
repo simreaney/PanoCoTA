@@ -5,10 +5,8 @@
   4) .panel and .section-block style the editor dashboard cards.
   5) input/select/button rules keep form controls visually consistent.
   6) #viewer defines the canvas container size and clipping.
-  7) .hotspot-* classes style custom hotspot marker injected from app.js.
-  8) .prompt-card is hidden by default and revealed on hotspot hover.
-  9) @keyframes ping animates pulsing guidance around hotspot dots.
-  10) @media block switches to mobile-friendly stacked layout. */
+  7) hotspot markers and their pop-up cards live in hotspot-overlays.css.
+  8) @media block switches to mobile-friendly stacked layout. */
 
 /* Theme tokens used across the UI for color consistency. */
 :root {
@@ -395,53 +393,7 @@ body.is-dragging-hotspot .pnlm-container * {
     linear-gradient(135deg, #0e1510, #1f2b24);
 }
 
-/* Wrapper for custom hotspot content supplied to Pannellum. */
-.hotspot-wrap {
-  --dot-color: #e84855;
-  --dot-ring: rgba(232, 72, 85, 0.65);
-  --prompt-border: rgba(232, 72, 85, 0.6);
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-}
-
-.hotspot-wrap--scene {
-  --dot-color: #3fbdb5;
-  --dot-ring: rgba(63, 189, 181, 0.65);
-  --prompt-border: rgba(63, 189, 181, 0.62);
-}
-
-.hotspot-wrap--graph {
-  --dot-color: #e84855;
-  --dot-ring: rgba(232, 72, 85, 0.65);
-  --prompt-border: rgba(232, 72, 85, 0.6);
-}
-
-.hotspot-wrap--image {
-  --dot-color: #f7b538;
-  --dot-ring: rgba(247, 181, 56, 0.7);
-  --prompt-border: rgba(247, 181, 56, 0.66);
-}
-
-.hotspot-wrap--text {
-  --dot-color: #7ac74f;
-  --dot-ring: rgba(122, 199, 79, 0.7);
-  --prompt-border: rgba(122, 199, 79, 0.66);
-}
-
-.hotspot-wrap--textLink {
-  --dot-color: #7ac74f;
-  --dot-ring: rgba(122, 199, 79, 0.7);
-  --prompt-border: rgba(122, 199, 79, 0.66);
-}
-
-.hotspot-wrap--link {
-  cursor: pointer;
-}
-
+/* Editor-only hotspot states; shared appearance lives in hotspot-overlays.css. */
 body.is-moving-hotspots .hotspot-wrap--editable {
   cursor: grab !important;
 }
@@ -454,170 +406,6 @@ body.is-moving-hotspots .prompt-card,
 body.is-dragging-hotspot .prompt-card {
   opacity: 0 !important;
   pointer-events: none !important;
-}
-
-/* Keep Pannellum internals present but visually hide default content. */
-.hotspot-host > :not(.hotspot-wrap) {
-  opacity: 0;
-}
-
-/* Remove Pannellum default hotspot ring/background for custom tooltip DOM. */
-.pnlm-hotspot-base {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  z-index: 30;
-}
-
-.pnlm-hotspot-base:hover {
-  z-index: 4000 !important;
-}
-
-/* Pulsing marker that indicates clickable navigation point. */
-.hotspot-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background: var(--dot-color);
-  box-shadow: 0 0 0 0 var(--dot-ring);
-  animation: ping 2s infinite;
-}
-
-/* Hover card shown near hotspot with custom prompt message. */
-.prompt-card {
-  position: absolute;
-  left: 34px;
-  top: -14px;
-  min-width: 220px;
-  max-width: 300px;
-  background: rgba(13, 20, 15, 0.92);
-  border: 1px solid var(--prompt-border);
-  border-radius: 10px;
-  padding: 10px 11px;
-  color: #fff9ef;
-  font-size: 0.95rem;
-  transform: translateX(-6px) scale(0.96);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 4100;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.prompt-card--graph {
-  width: min(90vw, var(--graph-card-width, 700px));
-  max-width: min(90vw, 1200px);
-  max-height: 82vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 6px;
-}
-
-.prompt-card--scene {
-  background: rgba(9, 29, 27, 0.93);
-}
-
-.prompt-card--image {
-  width: min(90vw, var(--image-card-width, 680px));
-  max-width: min(90vw, 680px);
-  background: rgba(36, 26, 7, 0.93);
-  transform: none;
-  transition: opacity 0.2s ease;
-  text-rendering: geometricPrecision;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-.prompt-card--text {
-  background: rgba(18, 34, 14, 0.93);
-}
-
-.prompt-card--textLink {
-  background: rgba(18, 34, 14, 0.93);
-}
-
-.graph-container {
-  width: 100%;
-  margin-top: 8px;
-  font-size: 0.92rem;
-  color: #ffd9dd;
-}
-
-.prompt-card--graph .graph-container {
-  margin-top: 0;
-}
-
-.graph-preview-note {
-  margin-top: 8px;
-  font-size: 0.78rem;
-  line-height: 1.35;
-  color: #ffd9dd;
-  opacity: 0.94;
-}
-
-.prompt-card--image .image-container {
-  color: #ffe7b8;
-}
-
-.image-container {
-  margin-top: 8px;
-}
-
-.image-caption {
-  margin-top: 8px;
-  font-size: 0.85rem;
-  line-height: 1.35;
-  color: #ffe7b8;
-  white-space: pre-wrap;
-}
-
-.graph-preview {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  border-radius: 8px;
-  border: 0;
-  margin-top: 0;
-  margin-left: auto;
-  margin-right: auto;
-  background: transparent;
-  object-fit: contain;
-}
-
-.image-preview {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  max-height: 68vh;
-  border-radius: 8px;
-  border: 1px solid rgba(232, 72, 85, 0.45);
-  margin-top: 6px;
-  background: #111;
-  object-fit: contain;
-}
-
-/* Reveal animation when user hovers hotspot marker. */
-.hotspot-wrap:hover .prompt-card {
-  opacity: 1;
-  transform: translateX(0) scale(1);
-}
-
-.hotspot-wrap:hover .prompt-card--image {
-  transform: none;
-}
-
-/* Pulse animation for hotspot marker. */
-@keyframes ping {
-  0% {
-    box-shadow: 0 0 0 0 var(--dot-ring);
-  }
-  70% {
-    box-shadow: 0 0 0 11px rgba(0, 0, 0, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
-  }
 }
 
 /* Mobile layout: stack controls above viewer and reduce viewer height. */

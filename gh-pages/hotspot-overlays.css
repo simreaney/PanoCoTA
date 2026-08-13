@@ -1,0 +1,221 @@
+/* Single source of truth for hotspot markers and their pop-up cards.
+   Shared by the editor, the local viewer and the published static viewer. */
+
+.hotspot-wrap {
+  --dot-color: #e84855;
+  --dot-ring: rgba(232, 72, 85, 0.65);
+  --prompt-border: rgba(232, 72, 85, 0.6);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+.hotspot-wrap--scene {
+  --dot-color: #3fbdb5;
+  --dot-ring: rgba(63, 189, 181, 0.65);
+  --prompt-border: rgba(63, 189, 181, 0.62);
+}
+
+.hotspot-wrap--graph {
+  --dot-color: #e84855;
+  --dot-ring: rgba(232, 72, 85, 0.65);
+  --prompt-border: rgba(232, 72, 85, 0.6);
+}
+
+.hotspot-wrap--image {
+  --dot-color: #f7b538;
+  --dot-ring: rgba(247, 181, 56, 0.7);
+  --prompt-border: rgba(247, 181, 56, 0.66);
+}
+
+.hotspot-wrap--text {
+  --dot-color: #7ac74f;
+  --dot-ring: rgba(122, 199, 79, 0.7);
+  --prompt-border: rgba(122, 199, 79, 0.66);
+}
+
+.hotspot-wrap--textLink {
+  --dot-color: #8b5cf6;
+  --dot-ring: rgba(139, 92, 246, 0.7);
+  --prompt-border: rgba(139, 92, 246, 0.72);
+}
+
+.hotspot-wrap--link {
+  cursor: pointer;
+}
+
+.hotspot-host > :not(.hotspot-wrap) {
+  opacity: 0;
+}
+
+/* Pannellum puts every hotspot in its own stacking context, so a card can only
+   clear neighbouring hotspots if the whole hotspot is lifted along with it. */
+.pnlm-hotspot-base {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  z-index: 1;
+}
+
+.pnlm-hotspot-base:hover,
+.pnlm-hotspot-base:has(.hotspot-wrap.is-active) {
+  z-index: 100;
+}
+
+.hotspot-dot {
+  position: relative;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  background: var(--dot-color);
+  box-shadow: 0 0 0 0 var(--dot-ring), 0 0 0 4px rgba(255, 255, 255, 0.16);
+  animation: ping 2s infinite;
+}
+
+.hotspot-wrap:hover .hotspot-dot {
+  transform: scale(1.08);
+}
+
+.prompt-card {
+  position: absolute;
+  left: 24px;
+  top: -10px;
+  z-index: 2;
+  pointer-events: none;
+  min-width: 220px;
+  max-width: 300px;
+  background: rgba(13, 20, 15, 0.92);
+  border: 1px solid var(--prompt-border);
+  border-radius: 10px;
+  padding: 10px 11px;
+  color: #fff9ef;
+  font-size: 0.95rem;
+  transform: translateX(-6px) scale(0.96);
+  opacity: 0;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.34);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.prompt-card--scene {
+  background: rgba(9, 29, 27, 0.93);
+}
+
+.prompt-card--graph {
+  width: min(90vw, var(--graph-card-width, 700px));
+  max-width: min(90vw, 1200px);
+  max-height: 82vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+}
+
+.prompt-card--image {
+  width: min(90vw, var(--image-card-width, 680px));
+  max-width: min(90vw, 680px);
+  background: rgba(36, 26, 7, 0.93);
+  transform: none;
+  transition: opacity 0.2s ease;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.prompt-card--text {
+  background: rgba(18, 34, 14, 0.93);
+}
+
+.prompt-card--textLink {
+  background: rgba(41, 24, 59, 0.95);
+}
+
+.graph-container {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 0.92rem;
+  color: #ffd9dd;
+}
+
+.prompt-card--graph .graph-container {
+  margin-top: 0;
+}
+
+.graph-preview-note {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #ffd9dd;
+  opacity: 0.94;
+}
+
+.image-container {
+  margin-top: 8px;
+}
+
+.prompt-card--image .image-container {
+  color: #ffe7b8;
+}
+
+.image-caption {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: #ffe7b8;
+  white-space: pre-wrap;
+}
+
+.graph-preview {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 0;
+  margin-top: 0;
+  margin-left: auto;
+  margin-right: auto;
+  background: transparent;
+  object-fit: contain;
+}
+
+.image-preview {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 68vh;
+  border-radius: 8px;
+  border: 1px solid rgba(232, 72, 85, 0.45);
+  margin-top: 6px;
+  background: #111;
+  object-fit: contain;
+}
+
+.hotspot-wrap:hover .prompt-card,
+.hotspot-wrap.is-active .prompt-card,
+.prompt-card.is-visible {
+  opacity: 1;
+  transform: translateX(0) scale(1);
+  pointer-events: auto;
+}
+
+.hotspot-wrap:hover .prompt-card--image,
+.hotspot-wrap.is-active .prompt-card--image {
+  transform: none;
+}
+
+@keyframes ping {
+  0% {
+    box-shadow: 0 0 0 0 var(--dot-ring);
+  }
+  70% {
+    box-shadow: 0 0 0 11px rgba(0, 0, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
+}

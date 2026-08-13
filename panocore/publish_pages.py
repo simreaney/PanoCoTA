@@ -14,6 +14,8 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from typing import Callable
 
+from jinja2 import Template
+
 from panocore.graph.service import generate_graph_asset
 from panocore.settings import LEGACY_IMAGES_DIR
 from panocore.storage import (
@@ -70,6 +72,26 @@ def _copy_required_file(src: Path | None, dst: Path, what: str) -> None:
         raise FileNotFoundError(f"Missing required {what} file for static export.")
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
+
+
+def _refresh_static_viewer_shell() -> None:
+    """Rebuild the published gh-pages viewer shell from the current template and assets."""
+    PAGES_DIR.mkdir(parents=True, exist_ok=True)
+    template_path = PROJECT_ROOT / "templates" / "published_viewer.html"
+    if not template_path.exists():
+        raise FileNotFoundError("published viewer template is missing.")
+
+    viewer_css_src = PROJECT_ROOT / "static" / "viewer.css"
+    viewer_js_src = PROJECT_ROOT / "static" / "viewer.js"
+    hotspot_css_src = PROJECT_ROOT / "static" / "hotspot-overlays.css"
+    if not viewer_css_src.exists() or not viewer_js_src.exists() or not hotspot_css_src.exists():
+        raise FileNotFoundError("Static viewer CSS/JS assets are missing.")
+
+    rendered = Template(template_path.read_text(encoding="utf-8")).render()
+    (PAGES_DIR / "index.html").write_text(rendered, encoding="utf-8")
+    _copy_required_file(viewer_css_src, PAGES_DIR / "viewer.css", "viewer CSS")
+    _copy_required_file(hotspot_css_src, PAGES_DIR / "hotspot-overlays.css", "hotspot overlay CSS")
+    _copy_required_file(viewer_js_src, PAGES_DIR / "viewer.js", "viewer JS")
 
 
 def _resolve_panorama_source(tour_name: str, scene_panorama: str) -> tuple[Path, str]:
@@ -307,6 +329,7 @@ def export_pages(tours: list[str], *, merge_existing: bool = False, progress: Pr
         normalized = _export_tour(tour_name, progress=_tour_progress)
         exported.append(normalized)
 
+    _refresh_static_viewer_shell()
     _prune_stale_published_tours(exported)
     _write_manifest(exported, merge_existing=merge_existing)
     _emit_progress(progress, 100, "Static tour manifest updated.")

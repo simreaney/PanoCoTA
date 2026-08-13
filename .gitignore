@@ -38,6 +38,9 @@ Thumbs.db
 # Flask runtime artifacts
 instance/
 
+# Test folder
+tests/
+
 # Project runtime/generated assets
 static/tours/**
 !static/tours/demo.json

@@ -450,7 +450,7 @@ function getAdaptiveGraphPreviewMaxPoints() {
 
 function positionPromptCard(wrap, prompt) {
   const viewportPadding = 8;
-  const gap = 34;
+  const gap = 24;
   const isMediaPrompt =
     prompt.classList.contains("prompt-card--graph") ||
     prompt.classList.contains("prompt-card--image");
@@ -462,7 +462,7 @@ function positionPromptCard(wrap, prompt) {
   const viewerRect = document.getElementById("viewer")?.getBoundingClientRect();
 
   let left = gap;
-  let top = 34;
+  let top = 8;
 
   if (isMediaPrompt && viewerRect) {
     // Keep large media cards centered vertically in the panorama for consistent readability.

@@ -12,33 +12,69 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
     />
-    <link rel="stylesheet" href="viewer.css" />
+    <link rel="stylesheet" href="viewer.css?v=20260813a" />
+    <link rel="stylesheet" href="hotspot-overlays.css?v=20260813a" />
   </head>
-  <body>
-    <div class="layout">
-      <aside class="panel">
+  <body data-viewer-mode="published" data-stage="select">
+    <main class="stage stage--select">
+      <div class="landing">
         <h1>PanoCoTA Viewer</h1>
         <p class="subtitle">Static viewer for published tours</p>
 
         <section class="section-block">
-          <h2>Tour</h2>
+          <h2>Choose a tour</h2>
           <label>
             Published Tours
             <select id="tour-select"></select>
           </label>
+          <button id="load-tour" class="primary">View Tour</button>
           <button id="refresh-tours">Refresh List</button>
-          <button id="load-tour">Load Tour</button>
           <p id="status" class="micro"></p>
         </section>
-      </aside>
 
-      <main class="viewer-wrap">
-        <div class="viewer-brand" aria-label="PanoCoTA Viewer branding">PanoCoTA Viewer</div>
+        <section class="section-block" aria-labelledby="viewer-help-title">
+          <h2 id="viewer-help-title">Navigation</h2>
+          <ul class="viewer-help-list">
+            <li>Drag the panorama to look around and explore the scene.</li>
+            <li>Use your mouse wheel or trackpad scroll to zoom in and out.</li>
+            <li>Clicking or tapping a scene-link hotspot moves you to another scene and can also take you back to a previous one.</li>
+            <li>Hovering over other hotspots on a desktop, or tapping them on a touch screen, reveals additional content.</li>
+          </ul>
+        </section>
+      </div>
+    </main>
+
+    <main class="stage stage--tour">
+      <div class="viewer-wrap">
+        <button id="exit-tour" class="viewer-exit" type="button">&larr; Choose another tour</button>
+        <div class="hotspot-legend" aria-label="Hotspot legend">
+          <div class="hotspot-legend__title">Hotspot types</div>
+          <div class="hotspot-legend__item">
+            <span class="hotspot-legend__swatch hotspot-legend__swatch--scene"></span>
+            <span>Scene link</span>
+          </div>
+          <div class="hotspot-legend__item">
+            <span class="hotspot-legend__swatch hotspot-legend__swatch--graph"></span>
+            <span>Graph</span>
+          </div>
+          <div class="hotspot-legend__item">
+            <span class="hotspot-legend__swatch hotspot-legend__swatch--image"></span>
+            <span>Image</span>
+          </div>
+          <div class="hotspot-legend__item">
+            <span class="hotspot-legend__swatch hotspot-legend__swatch--text"></span>
+            <span>Text</span>
+          </div>
+          <div class="hotspot-legend__item">
+            <span class="hotspot-legend__swatch hotspot-legend__swatch--text-link"></span>
+            <span>Web link</span>
+          </div>
+        </div>
         <div id="viewer"></div>
-      </main>
-    </div>
+      </div>
+    </main>
 
     <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
-    <script src="viewer.js"></script>
+    <script src="viewer.js?v=20260813b"></script>
   </body>
 </html>
