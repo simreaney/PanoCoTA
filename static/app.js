@@ -117,6 +117,12 @@ const el = {
   deleteScene: document.getElementById("delete-scene"),
   addScene: document.getElementById("add-scene"),
   newSceneTitle: document.getElementById("new-scene-title"),
+  newSceneCoverage: document.getElementById("new-scene-coverage"),
+  newSceneCoveragePartial: document.getElementById("scene-coverage-partial"),
+  newSceneCoverageNote: document.getElementById("scene-coverage-note"),
+  detectSceneCoverage: document.getElementById("detect-scene-coverage"),
+  newSceneVaov: document.getElementById("new-scene-vaov"),
+  newSceneVOffset: document.getElementById("new-scene-voffset"),
   newScenePanoramaSelect: document.getElementById("new-scene-panorama-select"),
   sceneUploadWrap: document.getElementById("scene-upload-wrap"),
   sceneImageUpload: document.getElementById("scene-image-upload"),
@@ -1308,6 +1314,130 @@ function toPannellumHotspot(spot) {
   };
 }
 
+// Google Photo Sphere XMP tags written by most stitching tools and phone panorama apps.
+const GPANO_TAGS = [
+  "FullPanoWidthPixels",
+  "FullPanoHeightPixels",
+  "CroppedAreaImageWidthPixels",
+  "CroppedAreaImageHeightPixels",
+  "CroppedAreaLeftPixels",
+  "CroppedAreaTopPixels",
+];
+
+function readGPanoTags(text) {
+  const tags = {};
+  GPANO_TAGS.forEach((tag) => {
+    const match = text.match(new RegExp(`GPano:${tag}[="'\\s>]+(-?\\d+)`));
+    if (match) {
+      tags[tag] = Number.parseInt(match[1], 10);
+    }
+  });
+  return GPANO_TAGS.every((tag) => Number.isFinite(tags[tag])) ? tags : null;
+}
+
+function readImageSize(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.addEventListener("load", () => resolve({ width: img.naturalWidth, height: img.naturalHeight }));
+    img.addEventListener("error", () => resolve(null));
+    img.src = url;
+  });
+}
+
+async function detectPanoramaCoverage(url) {
+  try {
+    const buffer = await (await fetch(url)).arrayBuffer();
+    // XMP lives in the file header, so only the first chunk needs decoding.
+    const header = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 512000));
+    const tags = readGPanoTags(new TextDecoder("latin1").decode(header));
+    if (tags && tags.FullPanoWidthPixels > 0 && tags.FullPanoHeightPixels > 0) {
+      const centreFromTop = tags.CroppedAreaTopPixels + (tags.CroppedAreaImageHeightPixels / 2);
+      return {
+        source: "metadata",
+        haov: (360 * tags.CroppedAreaImageWidthPixels) / tags.FullPanoWidthPixels,
+        vaov: (180 * tags.CroppedAreaImageHeightPixels) / tags.FullPanoHeightPixels,
+        vOffset: 90 - ((centreFromTop / tags.FullPanoHeightPixels) * 180),
+      };
+    }
+  } catch (_error) {
+    // Fall through to the shape estimate below.
+  }
+
+  const size = await readImageSize(url);
+  if (!size || !size.width || !size.height) {
+    return null;
+  }
+  // Equirectangular pixels map linearly to angles, so aspect ratio gives vertical coverage.
+  return {
+    source: "shape",
+    haov: 360,
+    vaov: clamp((360 * size.height) / size.width, 1, 180),
+    vOffset: 0,
+  };
+}
+
+function round1(value) {
+  return Math.round(value * 10) / 10;
+}
+
+async function applyDetectedSceneCoverage() {
+  const imageName = el.newScenePanoramaSelect.value.trim();
+  if (!imageName) {
+    el.newSceneCoverageNote.textContent = "Select or upload a panorama image first.";
+    return;
+  }
+
+  el.newSceneCoverageNote.textContent = "Checking image...";
+  const coverage = await detectPanoramaCoverage(`/images360/${currentAssetTour}/${imageName}`);
+  if (!coverage) {
+    el.newSceneCoverageNote.textContent = "Could not read that image. Set the values manually.";
+    return;
+  }
+
+  const isFullSphere = coverage.vaov >= 179.5;
+  el.newSceneCoverage.value = isFullSphere ? "sphere" : "cylinder";
+  el.newSceneVaov.value = String(round1(coverage.vaov));
+  el.newSceneVOffset.value = String(round1(coverage.vOffset));
+  updateSceneCoverageUI();
+
+  if (isFullSphere) {
+    el.newSceneCoverageNote.textContent = "Image covers a full sphere, so no vertical limit is needed.";
+    return;
+  }
+  el.newSceneCoverageNote.textContent =
+    coverage.source === "metadata"
+      ? `Read from panorama metadata: ${round1(coverage.vaov)}\u00B0 vertical, offset ${round1(coverage.vOffset)}\u00B0.`
+      : `Estimated from image shape: ${round1(coverage.vaov)}\u00B0 vertical. Adjust the offset if the horizon is not centred.`;
+}
+
+function updateSceneCoverageUI() {
+  el.newSceneCoveragePartial.classList.toggle(
+    "is-hidden",
+    el.newSceneCoverage.value !== "cylinder",
+  );
+}
+
+// Partial panoramas (a 360 sweep missing sky/ground) need explicit coverage angles.
+function toPanoramaCoverageConfig(scene) {
+  const vaov = Number.parseFloat(scene.vaov);
+  if (!Number.isFinite(vaov) || vaov <= 0 || vaov >= 180) {
+    return {};
+  }
+
+  const haov = Number.parseFloat(scene.haov);
+  const parsedOffset = Number.parseFloat(scene.vOffset);
+  const vOffset = Number.isFinite(parsedOffset) ? parsedOffset : 0;
+
+  // Pannellum maps the band correctly but still lets the view pan into empty space.
+  return {
+    haov: Number.isFinite(haov) && haov > 0 ? haov : 360,
+    vaov,
+    vOffset,
+    minPitch: vOffset - (vaov / 2),
+    maxPitch: vOffset + (vaov / 2),
+  };
+}
+
 function toPannellumSceneConfig(scene) {
   // Normalize hotspots so the viewer always receives a list.
   const sourceHotspots = Array.isArray(scene.hotSpots) ? scene.hotSpots : [];
@@ -1317,6 +1447,7 @@ function toPannellumSceneConfig(scene) {
     title: scene.title || scene.id,
     type: "equirectangular",
     panorama: scene.panorama,
+    ...toPanoramaCoverageConfig(scene),
     hotSpots: sourceHotspots.map((spot, hotspotIndex) =>
       toPannellumHotspot({ ...spot, sceneId: scene.id, hotspotIndex }),
     ),
@@ -1800,6 +1931,14 @@ function setupEvents() {
       hotSpots: [],
     };
 
+    if (el.newSceneCoverage.value === "cylinder") {
+      const vaov = clamp(Number.parseFloat(el.newSceneVaov.value) || 120, 1, 180);
+      const vOffset = clamp(Number.parseFloat(el.newSceneVOffset.value) || 0, -90, 90);
+      tour.scenes[id].haov = 360;
+      tour.scenes[id].vaov = vaov;
+      tour.scenes[id].vOffset = vOffset;
+    }
+
     if (!tour.meta.startScene) {
       // First scene added becomes start scene by default.
       tour.meta.startScene = id;
@@ -1814,9 +1953,16 @@ function setupEvents() {
   el.newScenePanoramaSelect.addEventListener("change", () => {
     if (el.newScenePanoramaSelect.value) {
       el.sceneImageResult.textContent = "";
+      applyDetectedSceneCoverage();
     }
     updateSceneUploadUI();
   });
+
+  el.detectSceneCoverage.addEventListener("click", () => {
+    applyDetectedSceneCoverage();
+  });
+
+  el.newSceneCoverage.addEventListener("change", updateSceneCoverageUI);
 
   el.uploadSceneImageButton.addEventListener("click", async () => {
     const file = el.sceneImageUpload.files?.[0];

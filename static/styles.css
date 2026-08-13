@@ -203,6 +203,10 @@ h1 {
   display: none;
 }
 
+#scene-coverage-partial.is-hidden {
+  display: none;
+}
+
 /* Stack each form label and its control. */
 label {
   display: block;
@@ -336,6 +340,15 @@ button.is-active {
   margin: 8px 2px 0;
   font-size: 0.78rem;
   color: var(--accent-soft);
+}
+
+/* Static explanatory text; the accent colour is reserved for status lines. */
+.hint {
+  margin: 8px 2px 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text);
+  opacity: 0.85;
 }
 
 /* Outer spacing for the viewer area. */

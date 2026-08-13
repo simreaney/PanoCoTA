@@ -396,12 +396,34 @@ function toPannellumHotspot(spot) {
   };
 }
 
+// Partial panoramas (a 360 sweep missing sky/ground) need explicit coverage angles.
+function toPanoramaCoverageConfig(scene) {
+  const vaov = Number.parseFloat(scene.vaov);
+  if (!Number.isFinite(vaov) || vaov <= 0 || vaov >= 180) {
+    return {};
+  }
+
+  const haov = Number.parseFloat(scene.haov);
+  const parsedOffset = Number.parseFloat(scene.vOffset);
+  const vOffset = Number.isFinite(parsedOffset) ? parsedOffset : 0;
+
+  // Pannellum maps the band correctly but still lets the view pan into empty space.
+  return {
+    haov: Number.isFinite(haov) && haov > 0 ? haov : 360,
+    vaov,
+    vOffset,
+    minPitch: vOffset - (vaov / 2),
+    maxPitch: vOffset + (vaov / 2),
+  };
+}
+
 function toPannellumSceneConfig(scene) {
   const sourceHotspots = Array.isArray(scene.hotSpots) ? scene.hotSpots : [];
   return {
     title: scene.title || scene.id,
     type: "equirectangular",
     panorama: scene.panorama,
+    ...toPanoramaCoverageConfig(scene),
     hotSpots: sourceHotspots.map((spot) => toPannellumHotspot(spot)),
   };
 }

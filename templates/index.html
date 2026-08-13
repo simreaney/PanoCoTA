@@ -31,7 +31,7 @@
     />
 
     <!-- App-specific UI theme and hotspot animation styles. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260813a') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260813b') }}" />
     <link rel="stylesheet" href="{{ url_for('static', filename='hotspot-overlays.css', v='20260813a') }}" />
   </head>
   <body>
@@ -112,6 +112,26 @@
           </label>
           <button id="upload-scene-image">Upload Image</button>
           <p id="scene-image-result" class="micro"></p>
+          <label>
+            Panorama Coverage
+            <select id="new-scene-coverage">
+              <option value="sphere" selected>Full sphere (360 x 180)</option>
+              <option value="cylinder">Partial (360 x limited vertical)</option>
+            </select>
+          </label>
+          <p id="scene-coverage-note" class="micro"></p>
+          <div id="scene-coverage-partial" class="is-hidden">
+            <button id="detect-scene-coverage">Detect Coverage From Image</button>
+            <label>
+              Vertical Field Of View (degrees)
+              <input id="new-scene-vaov" type="number" min="1" max="180" step="0.1" value="120" />
+            </label>
+            <label>
+              Vertical Offset (degrees)
+              <input id="new-scene-voffset" type="number" min="-90" max="90" step="0.1" value="0" />
+            </label>
+            <p class="hint">Vertical FOV is the sky-to-ground angle your camera captured. Offset shifts that band up or down if the horizon is not centred.</p>
+          </div>
           <button id="add-scene">Add Scene</button>
         </section>
 
@@ -131,7 +151,7 @@
                 <option value="graph">Graphed Data</option>
                 <option value="image">Image</option>
                 <option value="text">Free Text</option>
-                <option value="textLink">Free Text + Link</option>
+                <option value="textLink">Web Link</option>
               </select>
             </label>
             <label id="target-scene-wrap">
@@ -266,6 +286,6 @@
     <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
 
     <!-- Application logic for loading/saving tour and wiring UI events. -->
-    <script src="{{ url_for('static', filename='app.js', v='20260806as') }}"></script>
+    <script src="{{ url_for('static', filename='app.js', v='20260813b') }}"></script>
   </body>
 </html>
