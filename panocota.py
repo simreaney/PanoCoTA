@@ -30,7 +30,7 @@ def _env_flag(name: str, default: bool = False) -> bool:
 def run() -> None:
     """Run the development server using environment-configured host and port."""
     host = os.getenv("PANOCOTA_HOST", "0.0.0.0")
-    port = int(os.getenv("PANOCOTA_PORT", "5000"))
+    port = int(os.getenv("PANOCOTA_PORT", "5001"))
     debug = _env_flag("PANOCOTA_DEBUG", default=False)
     use_reloader = _env_flag("PANOCOTA_RELOAD", default=debug)
     verbose = _env_flag("PANOCOTA_VERBOSE", default=debug)
