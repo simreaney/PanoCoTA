@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import copy
 import csv
+import io
 import os
+import shutil
+import tempfile
 import threading
 import uuid
+from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_file, send_from_directory
 
-from .publish_pages import export_and_publish
+from .geo import extract_gps
+from .publish_pages import export_and_publish, export_to_disk
 from .graph.service import generate_graph_asset_with_info, get_graph_cache_signature
 from .default_tour import get_empty_tour
 from .settings import DATA_DIR, GRAPHS_DIR, IMAGES_2D_DIR, IMAGES_360_DIR, LEGACY_IMAGES_DIR
@@ -341,38 +346,147 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "Unknown publish job."}), 404
         return jsonify({"ok": True, "jobId": job_id, **job})
 
-    def _upload_image_to_dir(target_dir_resolver, path_prefix: str):
-        """Upload image file into the requested tour directory and return response payload."""
-        file = request.files.get("image")
-        if file is None or file.filename is None or file.filename.strip() == "":
+    def _resolve_export_scope(body: dict) -> tuple[list[str] | None, tuple | None]:
+        """Resolve the requested tour list for a disk export, or an error response."""
+        if bool(body.get("all")):
+            tours = list_tour_names()
+        else:
+            requested_raw = (body.get("tour") or current_tour_name or "").strip()
+            if not requested_raw:
+                return None, (jsonify({"error": "Save the current tour first, or switch export scope to All Saved Tours."}), 400)
+            tours = [normalize_tour_name(requested_raw)]
+
+        if not tours:
+            return None, (jsonify({"error": "No tours selected for export."}), 400)
+
+        available = set(list_tour_names())
+        missing = [name for name in tours if name not in available]
+        if missing:
+            return None, (jsonify({"error": f"These tours are not saved to disk: {', '.join(missing)}"}), 400)
+
+        return tours, None
+
+    @app.post("/api/export/disk")
+    def export_tour_to_disk():
+        """Export tours as a static bundle: either a zip download or a server-side folder."""
+        body = request.get_json(silent=True) or {}
+
+        mode = str(body.get("mode") or "zip").strip().lower()
+        if mode not in {"zip", "folder"}:
+            return jsonify({"error": "mode must be 'zip' or 'folder'."}), 400
+
+        tours, error_response = _resolve_export_scope(body)
+        if error_response:
+            return error_response
+
+        if mode == "zip":
+            with tempfile.TemporaryDirectory(prefix="panocota-export-") as temp_dir:
+                export_root = Path(temp_dir) / "site"
+                try:
+                    export_to_disk(tours, export_root)
+                except Exception as exc:
+                    return jsonify({"error": f"Export failed: {exc}"}), 500
+
+                archive_base = Path(temp_dir) / "panocota-export"
+                archive_path = Path(shutil.make_archive(str(archive_base), "zip", root_dir=export_root))
+                archive_bytes = archive_path.read_bytes()
+
+            download_name = f"panocota-export-{tours[0]}.zip" if len(tours) == 1 else "panocota-export-tours.zip"
+            return send_file(
+                io.BytesIO(archive_bytes),
+                mimetype="application/zip",
+                as_attachment=True,
+                download_name=download_name,
+            )
+
+        target_path_raw = str(body.get("targetPath") or "").strip()
+        if not target_path_raw:
+            return jsonify({"error": "targetPath is required for folder export."}), 400
+        target_path = Path(target_path_raw).expanduser().resolve()
+
+        job_id = uuid.uuid4().hex
+        _set_publish_job(job_id, status="queued", progress=0, message="Queued.")
+
+        def _disk_export_worker(job_id: str, tours: list[str], target_path: Path) -> None:
+            def _progress(percent: int, message: str) -> None:
+                _set_publish_job(job_id, status="running", progress=int(percent), message=message)
+
+            try:
+                _set_publish_job(job_id, status="running", progress=0, message="Starting export...")
+                exported = export_to_disk(tours, target_path, progress=_progress)
+                _set_publish_job(
+                    job_id,
+                    status="completed",
+                    progress=100,
+                    message="Export completed.",
+                    result={"exported": exported, "path": str(target_path)},
+                )
+            except Exception as exc:
+                _set_publish_job(job_id, status="failed", progress=100, message="Export failed.", error=str(exc))
+
+        thread = threading.Thread(target=_disk_export_worker, args=(job_id, tours, target_path), daemon=True)
+        thread.start()
+
+        return jsonify({"ok": True, "jobId": job_id, "statusUrl": f"/api/export/disk/status/{job_id}"}), 202
+
+    @app.get("/api/export/disk/status/<job_id>")
+    def export_disk_status(job_id: str):
+        """Return the current status for a background disk export job."""
+        job = _get_publish_job(job_id)
+        if job is None:
+            return jsonify({"error": "Unknown export job."}), 404
+        return jsonify({"ok": True, "jobId": job_id, **job})
+
+    def _upload_image_to_dir(target_dir_resolver, path_prefix: str, *, extract_location: bool = False):
+        """Upload one or more image files into the requested tour directory and return response payload."""
+        files = [f for f in request.files.getlist("image") if f and f.filename and f.filename.strip()]
+        if not files:
             return jsonify({"error": "No file uploaded."}), 400
 
-        if not is_allowed_image(file.filename):
-            return jsonify({"error": "Only jpg, jpeg, png, webp are allowed."}), 400
-
-        filename = sanitize_filename(file.filename)
         try:
             target_tour_name = request_tour_name(required=True)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         target_dir = target_dir_resolver(target_tour_name)
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / filename
-        write_uploaded_file(file, target_path)
 
-        return jsonify(
-            {
-                "ok": True,
+        uploaded = []
+        errors = []
+        for file in files:
+            if not is_allowed_image(file.filename):
+                errors.append({"filename": file.filename, "error": "Only jpg, jpeg, png, webp are allowed."})
+                continue
+            filename = sanitize_filename(file.filename)
+            target_path = target_dir / filename
+            write_uploaded_file(file, target_path)
+            entry = {
                 "path": f"/{path_prefix}/{target_tour_name}/{filename}",
                 "filename": filename,
-                "tour": target_tour_name,
             }
-        )
+            if extract_location:
+                entry["location"] = extract_gps(target_path)
+            uploaded.append(entry)
+
+        if not uploaded:
+            return jsonify({"error": "No valid image files uploaded.", "errors": errors}), 400
+
+        response = {
+            "ok": True,
+            "tour": target_tour_name,
+            "files": uploaded,
+            "errors": errors,
+            # Singular fields mirror the first uploaded file for callers that only expect one.
+            "path": uploaded[0]["path"],
+            "filename": uploaded[0]["filename"],
+        }
+        if extract_location:
+            response["location"] = uploaded[0].get("location")
+        return jsonify(response)
 
     @app.post("/api/upload_360")
     def upload_panorama_image():
         """Upload and store 360 panorama image under per-tour 360 directory."""
-        return _upload_image_to_dir(panorama_dir_for_tour, "images360")
+        return _upload_image_to_dir(panorama_dir_for_tour, "images360", extract_location=True)
 
     @app.post("/api/upload_2d")
     def upload_2d_image():
@@ -382,7 +496,23 @@ def register_routes(app: Flask) -> None:
     @app.post("/api/upload")
     def upload_image_legacy():
         """Legacy upload endpoint retained for backward compatibility (maps to 360)."""
-        return _upload_image_to_dir(panorama_dir_for_tour, "images360")
+        return _upload_image_to_dir(panorama_dir_for_tour, "images360", extract_location=True)
+
+    @app.get("/api/image_gps")
+    def get_image_gps():
+        """Return EXIF GPS location for an already-uploaded 360 panorama, if present."""
+        tour_name = request_tour_name()
+        filename = sanitize_filename((request.args.get("file") or "").strip())
+        if not tour_name or not filename:
+            return jsonify({"error": "tour and file query parameters are required."}), 400
+
+        candidate = panorama_dir_for_tour(tour_name) / filename
+        if not candidate.exists():
+            candidate = LEGACY_IMAGES_DIR / normalize_tour_name(tour_name) / filename
+        if not candidate.exists():
+            return jsonify({"ok": True, "location": None})
+
+        return jsonify({"ok": True, "location": extract_gps(candidate)})
 
     @app.get("/api/images_360")
     def list_panorama_images():

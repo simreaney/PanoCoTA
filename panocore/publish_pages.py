@@ -28,6 +28,8 @@ from panocore.storage import (
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
+STATIC_DIR = PROJECT_ROOT / "static"
+TEMPLATES_DIR = PROJECT_ROOT / "templates"
 PAGES_DIR = PROJECT_ROOT / "gh-pages"
 PUBLISHED_DIR = PAGES_DIR / "published"
 TOURS_DIR = PUBLISHED_DIR / "tours"
@@ -74,24 +76,33 @@ def _copy_required_file(src: Path | None, dst: Path, what: str) -> None:
     shutil.copy2(src, dst)
 
 
-def _refresh_static_viewer_shell() -> None:
-    """Rebuild the published gh-pages viewer shell from the current template and assets."""
-    PAGES_DIR.mkdir(parents=True, exist_ok=True)
-    template_path = PROJECT_ROOT / "templates" / "published_viewer.html"
+def _refresh_static_viewer_shell(target_dir: Path = PAGES_DIR) -> None:
+    """Rebuild a published viewer shell from the current template and assets.
+
+    Used both for the repo's gh-pages/ folder (GitHub Pages publish) and for
+    arbitrary disk-export output directories, so the two paths never drift.
+    """
+    target_dir.mkdir(parents=True, exist_ok=True)
+    template_path = TEMPLATES_DIR / "published_viewer.html"
     if not template_path.exists():
         raise FileNotFoundError("published viewer template is missing.")
 
-    viewer_css_src = PROJECT_ROOT / "static" / "viewer.css"
-    viewer_js_src = PROJECT_ROOT / "static" / "viewer.js"
-    hotspot_css_src = PROJECT_ROOT / "static" / "hotspot-overlays.css"
-    if not viewer_css_src.exists() or not viewer_js_src.exists() or not hotspot_css_src.exists():
+    viewer_css_src = STATIC_DIR / "viewer.css"
+    viewer_js_src = STATIC_DIR / "viewer.js"
+    hotspot_css_src = STATIC_DIR / "hotspot-overlays.css"
+    pano_widgets_src = STATIC_DIR / "pano_widgets.js"
+    pano_webxr_src = STATIC_DIR / "pano_webxr.js"
+    required_sources = (viewer_css_src, viewer_js_src, hotspot_css_src, pano_widgets_src, pano_webxr_src)
+    if not all(src.exists() for src in required_sources):
         raise FileNotFoundError("Static viewer CSS/JS assets are missing.")
 
     rendered = Template(template_path.read_text(encoding="utf-8")).render()
-    (PAGES_DIR / "index.html").write_text(rendered, encoding="utf-8")
-    _copy_required_file(viewer_css_src, PAGES_DIR / "viewer.css", "viewer CSS")
-    _copy_required_file(hotspot_css_src, PAGES_DIR / "hotspot-overlays.css", "hotspot overlay CSS")
-    _copy_required_file(viewer_js_src, PAGES_DIR / "viewer.js", "viewer JS")
+    (target_dir / "index.html").write_text(rendered, encoding="utf-8")
+    _copy_required_file(viewer_css_src, target_dir / "viewer.css", "viewer CSS")
+    _copy_required_file(hotspot_css_src, target_dir / "hotspot-overlays.css", "hotspot overlay CSS")
+    _copy_required_file(viewer_js_src, target_dir / "viewer.js", "viewer JS")
+    _copy_required_file(pano_widgets_src, target_dir / "pano_widgets.js", "viewer widgets JS")
+    _copy_required_file(pano_webxr_src, target_dir / "pano_webxr.js", "WebXR module JS")
 
 
 def _resolve_panorama_source(tour_name: str, scene_panorama: str) -> tuple[Path, str]:
@@ -159,12 +170,17 @@ def _build_graph_for_hotspot(tour_name: str, graph_block: dict) -> str:
     return graph_filename
 
 
-def _export_tour(tour_name: str, progress: ProgressCallback | None = None) -> str:
+def _export_tour(
+    tour_name: str,
+    *,
+    tours_dir: Path = TOURS_DIR,
+    progress: ProgressCallback | None = None,
+) -> str:
     normalized = normalize_tour_name(tour_name)
     source_tour = load_tour(normalized)
     tour_payload = copy.deepcopy(source_tour)
 
-    target_tour_dir = TOURS_DIR / normalized
+    target_tour_dir = tours_dir / normalized
     target_panorama_dir = target_tour_dir / "images360"
     target_image_dir = target_tour_dir / "images2d"
     target_graph_dir = target_tour_dir / "graphs"
@@ -246,8 +262,8 @@ def _export_tour(tour_name: str, progress: ProgressCallback | None = None) -> st
     return normalized
 
 
-def _read_existing_manifest_tours() -> list[str]:
-    manifest_path = PUBLISHED_DIR / "tours.json"
+def _read_existing_manifest_tours(published_dir: Path = PUBLISHED_DIR) -> list[str]:
+    manifest_path = published_dir / "tours.json"
     if not manifest_path.exists():
         return []
 
@@ -265,25 +281,25 @@ def _read_existing_manifest_tours() -> list[str]:
     return [str(name).strip() for name in tours if str(name).strip()]
 
 
-def _write_manifest(tours: list[str], *, merge_existing: bool = True) -> None:
-    PUBLISHED_DIR.mkdir(parents=True, exist_ok=True)
+def _write_manifest(tours: list[str], published_dir: Path = PUBLISHED_DIR, *, merge_existing: bool = True) -> None:
+    published_dir.mkdir(parents=True, exist_ok=True)
     merged = set(tours)
     if merge_existing:
-        merged.update(_read_existing_manifest_tours())
+        merged.update(_read_existing_manifest_tours(published_dir))
 
     manifest = {
         "tours": sorted(merged),
     }
-    with (PUBLISHED_DIR / "tours.json").open("w", encoding="utf-8") as handle:
+    with (published_dir / "tours.json").open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
 
 
-def _prune_stale_published_tours(exported: list[str]) -> None:
-    if not TOURS_DIR.exists():
+def _prune_stale_published_tours(exported: list[str], tours_dir: Path = TOURS_DIR) -> None:
+    if not tours_dir.exists():
         return
 
     keep = {normalize_tour_name(name) for name in exported if str(name).strip()}
-    for path in TOURS_DIR.iterdir():
+    for path in tours_dir.iterdir():
         if path.is_dir() and path.name not in keep:
             shutil.rmtree(path)
 
@@ -311,11 +327,19 @@ def _validate_published_bundle_size(limit_bytes: int = 95 * 1024 * 1024) -> None
         )
 
 
-def export_pages(tours: list[str], *, merge_existing: bool = False, progress: ProgressCallback | None = None) -> list[str]:
+def export_pages(
+    tours: list[str],
+    *,
+    merge_existing: bool = False,
+    progress: ProgressCallback | None = None,
+    pages_root: Path = PAGES_DIR,
+) -> list[str]:
     if not tours:
         return []
 
-    TOURS_DIR.mkdir(parents=True, exist_ok=True)
+    published_dir = pages_root / "published"
+    tours_dir = published_dir / "tours"
+    tours_dir.mkdir(parents=True, exist_ok=True)
 
     exported: list[str] = []
     total_tours = len(tours)
@@ -326,14 +350,29 @@ def export_pages(tours: list[str], *, merge_existing: bool = False, progress: Pr
         def _tour_progress(percent: int, message: str) -> None:
             _emit_progress(progress, tour_base + round((percent / 100) * tour_span), message)
 
-        normalized = _export_tour(tour_name, progress=_tour_progress)
+        normalized = _export_tour(tour_name, tours_dir=tours_dir, progress=_tour_progress)
         exported.append(normalized)
 
-    _refresh_static_viewer_shell()
-    _prune_stale_published_tours(exported)
-    _write_manifest(exported, merge_existing=merge_existing)
+    _refresh_static_viewer_shell(pages_root)
+    _prune_stale_published_tours(exported, tours_dir)
+    _write_manifest(exported, published_dir, merge_existing=merge_existing)
     _emit_progress(progress, 100, "Static tour manifest updated.")
     return exported
+
+
+def export_to_disk(
+    tours: list[str],
+    output_dir: Path,
+    *,
+    progress: ProgressCallback | None = None,
+) -> list[str]:
+    """Export a self-contained static tour bundle into an arbitrary output directory.
+
+    Produces the same package a GitHub Pages publish would push (index.html,
+    viewer assets, published/tours.json + per-tour assets), scoped only to the
+    requested tours, written to a caller-chosen location instead of gh-pages/.
+    """
+    return export_pages(tours, merge_existing=False, progress=progress, pages_root=output_dir)
 
 
 def _run_checked(command: list[str], cwd: Path | None = None) -> None:

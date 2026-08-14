@@ -123,6 +123,10 @@ const el = {
   detectSceneCoverage: document.getElementById("detect-scene-coverage"),
   newSceneVaov: document.getElementById("new-scene-vaov"),
   newSceneVOffset: document.getElementById("new-scene-voffset"),
+  newSceneLat: document.getElementById("new-scene-lat"),
+  newSceneLon: document.getElementById("new-scene-lon"),
+  detectSceneLocation: document.getElementById("detect-scene-location"),
+  sceneLocationNote: document.getElementById("scene-location-note"),
   newScenePanoramaSelect: document.getElementById("new-scene-panorama-select"),
   sceneUploadWrap: document.getElementById("scene-upload-wrap"),
   sceneImageUpload: document.getElementById("scene-image-upload"),
@@ -187,6 +191,18 @@ const el = {
   csvUploadResult: document.getElementById("csv-upload-result"),
   tourSelect: document.getElementById("tour-select"),
   refreshTours: document.getElementById("refresh-tours"),
+  tourAutorotateEnabled: document.getElementById("tour-autorotate-enabled"),
+  tourAutorotateSpeedWrap: document.getElementById("tour-autorotate-speed-wrap"),
+  tourAutorotateSpeed: document.getElementById("tour-autorotate-speed"),
+  autolinkNeighborCount: document.getElementById("autolink-neighbor-count"),
+  autolinkScenesButton: document.getElementById("autolink-scenes"),
+  autolinkRemoveButton: document.getElementById("autolink-remove"),
+  autolinkResult: document.getElementById("autolink-result"),
+  exportZipButton: document.getElementById("export-zip"),
+  exportFolderPath: document.getElementById("export-folder-path"),
+  exportFolderButton: document.getElementById("export-folder"),
+  exportResult: document.getElementById("export-result"),
+  panoOverlay: document.getElementById("pano-widgets-overlay"),
 };
 
 function resolveLoadTourName() {
@@ -299,6 +315,14 @@ async function refreshImageList(preferredImage = "", preferredHotspotImage = "",
     "(upload new image)",
     preferredHotspotImage || preferredImage,
   );
+}
+
+function describeUploadResult(uploadedFiles, errors) {
+  const parts = [`Uploaded: ${uploadedFiles.map((f) => f.filename).join(", ")}`];
+  if (errors.length > 0) {
+    parts.push(`Skipped: ${errors.map((e) => e.filename).join(", ")}`);
+  }
+  return parts.join(". ");
 }
 
 function setSelectOptions(selectEl, options, includeBlank = false, blankLabel = "", preferred = "") {
@@ -1417,6 +1441,38 @@ function updateSceneCoverageUI() {
   );
 }
 
+// Heading (compass direction the camera faced) read alongside lat/lon, if the
+// image has it; used by auto-link to aim generated hotspots more precisely.
+// Not exposed as a form field, so it is tracked here and consumed by Add Scene.
+let pendingDetectedHeading = null;
+
+async function applyDetectedSceneLocation() {
+  const imageName = el.newScenePanoramaSelect.value.trim();
+  pendingDetectedHeading = null;
+  if (!imageName) {
+    el.sceneLocationNote.textContent = "";
+    return;
+  }
+
+  el.sceneLocationNote.textContent = "Checking image for GPS location...";
+  try {
+    const query = new URLSearchParams({ tour: currentAssetTour, file: imageName });
+    const response = await fetch(`/api/image_gps?${query.toString()}`);
+    const body = await response.json();
+    if (!response.ok || !body.location) {
+      el.sceneLocationNote.textContent = "No GPS location found in image. Enter coordinates manually if known.";
+      return;
+    }
+
+    el.newSceneLat.value = String(body.location.lat);
+    el.newSceneLon.value = String(body.location.lon);
+    pendingDetectedHeading = Number.isFinite(body.location.heading) ? body.location.heading : null;
+    el.sceneLocationNote.textContent = "Location read from image GPS metadata.";
+  } catch (_error) {
+    el.sceneLocationNote.textContent = "Could not check image for GPS metadata.";
+  }
+}
+
 // Partial panoramas (a 360 sweep missing sky/ground) need explicit coverage angles.
 function toPanoramaCoverageConfig(scene) {
   const vaov = Number.parseFloat(scene.vaov);
@@ -1470,6 +1526,7 @@ function buildViewerConfig(firstSceneOverride = null) {
     firstSceneOverride && tour.scenes[firstSceneOverride]
       ? firstSceneOverride
       : fallbackFirstScene;
+  const autoRotate = tour.meta?.autoRotate;
 
   // "default" config applies viewer-wide behavior.
   return {
@@ -1478,6 +1535,9 @@ function buildViewerConfig(firstSceneOverride = null) {
       autoLoad: true,
       showControls: true,
       compass: false,
+      ...(autoRotate?.enabled
+        ? { autoRotate: -(Number(autoRotate.speed) || 2), autoRotateInactivityDelay: 3000 }
+        : {}),
     },
     scenes: scenesConfig,
   };
@@ -1500,6 +1560,11 @@ function renderViewer(firstSceneOverride = null) {
 
   document.getElementById("viewer").innerHTML = "";
   viewer = pannellum.viewer("viewer", config);
+
+  if (window.PanoWidgets && el.panoOverlay) {
+    window.PanoWidgets.mount(el.panoOverlay, { tour, viewer, onSceneChange: syncHotspotSourceSelection });
+  }
+
   const viewerNode = viewer.getContainer();
   viewerNode.addEventListener("mousedown", (event) => {
     if (!pendingHotspotPlacement || !viewer) {
@@ -1640,12 +1705,28 @@ function updateSceneUploadUI() {
   el.sceneImageResult.style.display = wantsImageUpload ? "block" : "none";
 }
 
+function updateTourAutorotateUI() {
+  const enabled = Boolean(tour?.meta?.autoRotate?.enabled);
+  const speed = Number(tour?.meta?.autoRotate?.speed);
+  el.tourAutorotateEnabled.checked = enabled;
+  el.tourAutorotateSpeed.value = String(Number.isFinite(speed) && speed > 0 ? speed : 2);
+  el.tourAutorotateSpeedWrap.classList.toggle("is-hidden", !enabled);
+}
+
 function setPublishStatus(message, isError = false) {
   if (!el.publishResult) {
     return;
   }
   el.publishResult.textContent = message;
   el.publishResult.style.color = isError ? "#ffd0d0" : "#d8ffe0";
+}
+
+function setExportStatus(message, isError = false) {
+  if (!el.exportResult) {
+    return;
+  }
+  el.exportResult.textContent = message;
+  el.exportResult.style.color = isError ? "#ffd0d0" : "#d8ffe0";
 }
 
 function clearPublishStatusPollTimer() {
@@ -1655,19 +1736,21 @@ function clearPublishStatusPollTimer() {
   }
 }
 
-async function pollPublishJob(statusUrl) {
+async function pollJobStatus(statusUrl, options = {}) {
+  const label = options.label || "Publishing static package to GitHub...";
+  const onStatus = options.onStatus || setPublishStatus;
   clearPublishStatusPollTimer();
 
   const pollOnce = async () => {
     const response = await fetch(statusUrl);
     const body = await response.json();
     if (!response.ok || !body.ok) {
-      throw new Error(body.error || "Failed to read publish progress.");
+      throw new Error(body.error || "Failed to read job progress.");
     }
 
     const percent = Number.isFinite(Number(body.progress)) ? Math.max(0, Math.min(100, Number(body.progress))) : 0;
-    const message = String(body.message || "Publishing...").trim();
-    setPublishStatus(`Publishing static package to GitHub... ${percent}% - ${message}`);
+    const message = String(body.message || "Working...").trim();
+    onStatus(`${label} ${percent}% - ${message}`);
 
     if (body.status === "completed") {
       clearPublishStatusPollTimer();
@@ -1675,7 +1758,7 @@ async function pollPublishJob(statusUrl) {
     }
     if (body.status === "failed") {
       clearPublishStatusPollTimer();
-      throw new Error(body.error || "Publish failed.");
+      throw new Error(body.error || "Job failed.");
     }
     return { done: false, body };
   };
@@ -1939,6 +2022,12 @@ function setupEvents() {
       tour.scenes[id].vOffset = vOffset;
     }
 
+    const lat = Number.parseFloat(el.newSceneLat.value);
+    const lon = Number.parseFloat(el.newSceneLon.value);
+    if (Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      tour.scenes[id].location = { lat, lon, heading: pendingDetectedHeading };
+    }
+
     if (!tour.meta.startScene) {
       // First scene added becomes start scene by default.
       tour.meta.startScene = id;
@@ -1947,6 +2036,10 @@ function setupEvents() {
     fillSceneSelects();
     renderViewer();
     el.sceneImageResult.textContent = "";
+    el.newSceneLat.value = "";
+    el.newSceneLon.value = "";
+    el.sceneLocationNote.textContent = "";
+    pendingDetectedHeading = null;
     setStatus(`Added scene '${id}'.`);
   });
 
@@ -1954,6 +2047,7 @@ function setupEvents() {
     if (el.newScenePanoramaSelect.value) {
       el.sceneImageResult.textContent = "";
       applyDetectedSceneCoverage();
+      applyDetectedSceneLocation();
     }
     updateSceneUploadUI();
   });
@@ -1962,12 +2056,16 @@ function setupEvents() {
     applyDetectedSceneCoverage();
   });
 
+  el.detectSceneLocation.addEventListener("click", () => {
+    applyDetectedSceneLocation();
+  });
+
   el.newSceneCoverage.addEventListener("change", updateSceneCoverageUI);
 
   el.uploadSceneImageButton.addEventListener("click", async () => {
-    const file = el.sceneImageUpload.files?.[0];
-    if (!file) {
-      el.sceneImageResult.textContent = "Select an image first.";
+    const files = Array.from(el.sceneImageUpload.files || []);
+    if (files.length === 0) {
+      el.sceneImageResult.textContent = "Select one or more images first.";
       return;
     }
 
@@ -1981,7 +2079,7 @@ function setupEvents() {
     }
 
     const data = new FormData();
-    data.append("image", file);
+    files.forEach((file) => data.append("image", file));
     data.append("tour", targetTour);
 
     const response = await fetch("/api/upload_360", {
@@ -1995,20 +2093,37 @@ function setupEvents() {
       return;
     }
 
-    el.sceneImageResult.textContent = `Uploaded: ${body.filename}`;
+    const uploadedFiles = Array.isArray(body.files) ? body.files : [body];
+    const errors = Array.isArray(body.errors) ? body.errors : [];
+    el.sceneImageResult.textContent = describeUploadResult(uploadedFiles, errors);
     try {
-      await refreshImageList(body.filename, "", body.tour || targetTour);
+      await refreshImageList(uploadedFiles[0].filename, "", body.tour || targetTour);
       updateSceneUploadUI();
     } catch (_error) {
-      setStatus("Image uploaded, but failed to refresh image list.", true);
+      setStatus("Image upload complete, but failed to refresh image list.", true);
     }
-    setStatus("Image upload complete. Selected for new scene.");
+    if (uploadedFiles[0].location) {
+      el.newSceneLat.value = String(uploadedFiles[0].location.lat);
+      el.newSceneLon.value = String(uploadedFiles[0].location.lon);
+      pendingDetectedHeading = Number.isFinite(uploadedFiles[0].location.heading)
+        ? uploadedFiles[0].location.heading
+        : null;
+      el.sceneLocationNote.textContent = "Location read from image GPS metadata.";
+    } else {
+      pendingDetectedHeading = null;
+      el.sceneLocationNote.textContent = "No GPS location found in image. Enter coordinates manually if known.";
+    }
+    setStatus(
+      uploadedFiles.length > 1
+        ? `${uploadedFiles.length} images uploaded. First image selected for new scene.`
+        : "Image upload complete. Selected for new scene.",
+    );
   });
 
   el.uploadHotspotImageButton.addEventListener("click", async () => {
-    const file = el.hotspotImageUpload.files?.[0];
-    if (!file) {
-      el.hotspotImageResult.textContent = "Select an image first.";
+    const files = Array.from(el.hotspotImageUpload.files || []);
+    if (files.length === 0) {
+      el.hotspotImageResult.textContent = "Select one or more images first.";
       return;
     }
 
@@ -2022,7 +2137,7 @@ function setupEvents() {
     }
 
     const data = new FormData();
-    data.append("image", file);
+    files.forEach((file) => data.append("image", file));
     data.append("tour", targetTour);
 
     const response = await fetch("/api/upload_2d", {
@@ -2036,14 +2151,20 @@ function setupEvents() {
       return;
     }
 
-    el.hotspotImageResult.textContent = `Uploaded: ${body.filename}`;
+    const uploadedFiles = Array.isArray(body.files) ? body.files : [body];
+    const errors = Array.isArray(body.errors) ? body.errors : [];
+    el.hotspotImageResult.textContent = describeUploadResult(uploadedFiles, errors);
     try {
-      await refreshImageList("", body.filename, body.tour || targetTour);
+      await refreshImageList("", uploadedFiles[0].filename, body.tour || targetTour);
       updateHotspotModeUI();
     } catch (_error) {
-      setStatus("Image uploaded, but failed to refresh image list.", true);
+      setStatus("Image upload complete, but failed to refresh image list.", true);
     }
-    setStatus("Image upload complete. Selected for image hotspot.");
+    setStatus(
+      uploadedFiles.length > 1
+        ? `${uploadedFiles.length} images uploaded. First image selected for image hotspot.`
+        : "Image upload complete. Selected for image hotspot.",
+    );
   });
 
   // Capture current camera view for precise hotspot placement.
@@ -2117,6 +2238,7 @@ function setupEvents() {
       tour.scenes = {};
     }
     ensureHotspotIds();
+    updateTourAutorotateUI();
 
     fillSceneSelects();
     renderViewer();
@@ -2156,6 +2278,7 @@ function setupEvents() {
       tour.scenes = {};
     }
     ensureHotspotIds();
+    updateTourAutorotateUI();
 
     fillSceneSelects();
     renderViewer();
@@ -2329,7 +2452,7 @@ function setupEvents() {
       }
 
       if (response.status === 202 && body.jobId && body.statusUrl) {
-        const finalJob = await pollPublishJob(body.statusUrl);
+        const finalJob = await pollJobStatus(body.statusUrl);
         const result = finalJob.result || {};
         const tours = Array.isArray(result.exported) ? result.exported.join(", ") : "";
         const destination = result.pagesUrl || result.repoUrl || `${owner}/${result.repo || body.repo || ""}`;
@@ -2358,6 +2481,157 @@ function setupEvents() {
       el.publishToken.value = "";
       el.publishTourButton.disabled = false;
       clearPublishStatusPollTimer();
+    }
+  });
+
+  el.tourAutorotateEnabled.addEventListener("change", () => {
+    if (!tour.meta) {
+      tour.meta = {};
+    }
+    const speed = clamp(Number.parseFloat(el.tourAutorotateSpeed.value) || 2, 0.5, 10);
+    tour.meta.autoRotate = { enabled: el.tourAutorotateEnabled.checked, speed };
+    el.tourAutorotateSpeedWrap.classList.toggle("is-hidden", !el.tourAutorotateEnabled.checked);
+    renderViewerPreservingView();
+  });
+
+  el.tourAutorotateSpeed.addEventListener("change", () => {
+    if (!tour.meta) {
+      tour.meta = {};
+    }
+    const speed = clamp(Number.parseFloat(el.tourAutorotateSpeed.value) || 2, 0.5, 10);
+    el.tourAutorotateSpeed.value = String(speed);
+    tour.meta.autoRotate = { enabled: el.tourAutorotateEnabled.checked, speed };
+    renderViewerPreservingView();
+  });
+
+  el.autolinkScenesButton.addEventListener("click", () => {
+    if (!window.PanoWidgets) {
+      setStatus("Auto-link widgets failed to load.", true);
+      return;
+    }
+    const neighborCount = clamp(Number.parseInt(el.autolinkNeighborCount.value, 10) || 2, 1, 8);
+    const { added } = window.PanoWidgets.computeAutoLinkHotspots(tour, { neighborCount });
+    ensureHotspotIds();
+    renderViewerPreservingView();
+    el.autolinkResult.textContent =
+      added > 0 ? `Added ${added} auto-generated hotspot(s).` : "No new links needed for the current neighbor count.";
+    setStatus(
+      added > 0
+        ? `Auto-linked scenes: added ${added} hotspot(s). Save the tour to persist them.`
+        : "Auto-link found no new connections to add.",
+    );
+  });
+
+  el.autolinkRemoveButton.addEventListener("click", () => {
+    if (!window.PanoWidgets) {
+      setStatus("Auto-link widgets failed to load.", true);
+      return;
+    }
+    const { removed } = window.PanoWidgets.removeAutoLinkedHotspots(tour);
+    renderViewerPreservingView();
+    el.autolinkResult.textContent =
+      removed > 0 ? `Removed ${removed} auto-generated hotspot(s).` : "No auto-generated hotspots to remove.";
+    setStatus(
+      removed > 0
+        ? `Removed ${removed} auto-generated hotspot(s). Save the tour to persist.`
+        : "No auto-generated hotspots found.",
+    );
+  });
+
+  function resolveExportTourScope() {
+    const scope = (el.publishScope.value || "current").trim().toLowerCase();
+    if (scope === "all") {
+      return { all: true, tour: "" };
+    }
+    const selectedTour = (activeTourName || "").trim() || resolveSaveTourName();
+    return { all: false, tour: selectedTour };
+  }
+
+  el.exportZipButton.addEventListener("click", async () => {
+    const { all, tour: selectedTour } = resolveExportTourScope();
+    if (!all && !selectedTour) {
+      setExportStatus("Save the current tour first, or switch scope to All Saved Tours.", true);
+      return;
+    }
+
+    setExportStatus("Preparing download...");
+    el.exportZipButton.disabled = true;
+    try {
+      const response = await fetch("/api/export/disk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all, tour: selectedTour, mode: "zip" }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        setExportStatus(body.error || "Export failed.", true);
+        return;
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const nameMatch = /filename="?([^";]+)"?/.exec(disposition);
+      const downloadName = nameMatch ? nameMatch[1] : "panocota-export.zip";
+
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = downloadName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+
+      setExportStatus(`Downloaded ${downloadName}.`);
+    } catch (_error) {
+      setExportStatus("Export request failed.", true);
+    } finally {
+      el.exportZipButton.disabled = false;
+    }
+  });
+
+  el.exportFolderButton.addEventListener("click", async () => {
+    const targetPath = (el.exportFolderPath.value || "").trim();
+    if (!targetPath) {
+      setExportStatus("Provide a folder path first.", true);
+      return;
+    }
+
+    const { all, tour: selectedTour } = resolveExportTourScope();
+    if (!all && !selectedTour) {
+      setExportStatus("Save the current tour first, or switch scope to All Saved Tours.", true);
+      return;
+    }
+
+    setExportStatus("Exporting to folder...");
+    el.exportFolderButton.disabled = true;
+    try {
+      const response = await fetch("/api/export/disk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all, tour: selectedTour, mode: "folder", targetPath }),
+      });
+
+      const body = await response.json();
+      if (!response.ok) {
+        setExportStatus(body.error || "Export failed.", true);
+        return;
+      }
+
+      if (response.status === 202 && body.jobId && body.statusUrl) {
+        const finalJob = await pollJobStatus(body.statusUrl, { label: "Exporting to folder...", onStatus: setExportStatus });
+        const result = finalJob.result || {};
+        const tours = Array.isArray(result.exported) ? result.exported.join(", ") : "";
+        setExportStatus(`Exported ${tours} to ${result.path || targetPath}.`);
+        return;
+      }
+
+      setExportStatus("Export completed.");
+    } catch (error) {
+      setExportStatus(error?.message || "Export request failed.", true);
+    } finally {
+      el.exportFolderButton.disabled = false;
     }
   });
 }
@@ -2397,6 +2671,7 @@ async function boot() {
       tour.scenes = {};
     }
     ensureHotspotIds();
+    updateTourAutorotateUI();
 
     fillSceneSelects();
     renderViewer();

@@ -12,6 +12,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
     />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="viewer.css?v=20260813a" />
     <link rel="stylesheet" href="hotspot-overlays.css?v=20260813a" />
   </head>
@@ -70,11 +71,15 @@
             <span>Web link</span>
           </div>
         </div>
+        <div id="pano-widgets-overlay"></div>
         <div id="viewer"></div>
       </div>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="pano_widgets.js?v=20260814a"></script>
+    <script type="module" src="pano_webxr.js?v=20260814a"></script>
     <script src="viewer.js?v=20260813b"></script>
   </body>
 </html>

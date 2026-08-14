@@ -230,7 +230,7 @@ button.primary {
 .hotspot-legend {
   position: absolute;
   top: 16px;
-  right: 16px;
+  left: 16px;
   z-index: 40;
   max-width: min(220px, calc(100% - 32px));
   display: grid;
@@ -301,7 +301,7 @@ button.primary {
 @media (max-width: 768px) {
   .hotspot-legend {
     top: 12px;
-    right: 12px;
+    left: 12px;
     max-width: min(200px, calc(100% - 24px));
   }
 }

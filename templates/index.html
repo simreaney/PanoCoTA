@@ -30,8 +30,10 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
     />
 
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
     <!-- App-specific UI theme and hotspot animation styles. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260813b') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260814a') }}" />
     <link rel="stylesheet" href="{{ url_for('static', filename='hotspot-overlays.css', v='20260813a') }}" />
   </head>
   <body>
@@ -108,9 +110,9 @@
             <select id="new-scene-panorama-select"></select>
           </label>
           <label id="scene-upload-wrap">
-            <input id="scene-image-upload" type="file" accept=".jpg,.jpeg,.png,.webp" />
+            <input id="scene-image-upload" type="file" accept=".jpg,.jpeg,.png,.webp" multiple />
           </label>
-          <button id="upload-scene-image">Upload Image</button>
+          <button id="upload-scene-image">Upload Image(s)</button>
           <p id="scene-image-result" class="micro"></p>
           <label>
             Panorama Coverage
@@ -132,7 +134,25 @@
             </label>
             <p class="hint">Vertical FOV is the sky-to-ground angle your camera captured. Offset shifts that band up or down if the horizon is not centred.</p>
           </div>
+          <label>
+            Location (optional)
+            <div class="location-fields">
+              <input id="new-scene-lat" type="number" step="any" min="-90" max="90" placeholder="Latitude" />
+              <input id="new-scene-lon" type="number" step="any" min="-180" max="180" placeholder="Longitude" />
+            </div>
+          </label>
+          <button id="detect-scene-location">Detect Location From Image</button>
+          <p id="scene-location-note" class="micro"></p>
           <button id="add-scene">Add Scene</button>
+        </section>
+
+        <section class="section-block">
+          <h2>Tour Settings</h2>
+          <label class="publish-private-label"><input id="tour-autorotate-enabled" type="checkbox" /> Auto-rotate panorama</label>
+          <label id="tour-autorotate-speed-wrap" class="is-hidden">
+            Speed (degrees/second)
+            <input id="tour-autorotate-speed" type="number" min="0.5" max="10" step="0.5" value="2" />
+          </label>
         </section>
 
         <!-- Form to configure hotspot content and place or move it in the viewer. -->
@@ -218,16 +238,28 @@
               <textarea id="hotspot-image-caption" rows="3" placeholder="Add a caption shown below the image"></textarea>
             </label>
             <label id="image-upload-wrap">
-              <input id="hotspot-image-upload" type="file" accept=".jpg,.jpeg,.png,.webp" />
+              <input id="hotspot-image-upload" type="file" accept=".jpg,.jpeg,.png,.webp" multiple />
             </label>
-            <button id="upload-hotspot-image">Upload Image</button>
+            <button id="upload-hotspot-image">Upload Image(s)</button>
             <p id="hotspot-image-result" class="micro"></p>
             <button id="place-hotspot">Place Hotspot In Viewer</button>
           </div>
         </section>
 
         <section class="section-block">
-          <h2>Publish To GitHub</h2>
+          <h2>Auto-Generated Hotspots</h2>
+          <label>
+            Closest Scenes To Link
+            <input id="autolink-neighbor-count" type="number" min="1" max="8" step="1" value="2" />
+          </label>
+          <p class="hint">Links each scene to its closest N scenes (by GPS distance when scenes have a location, otherwise in the order scenes were added). Links are added both ways so the tour stays walkable.</p>
+          <button id="autolink-scenes">Auto-Link Scenes</button>
+          <button id="autolink-remove">Remove Auto-Generated Hotspots</button>
+          <p id="autolink-result" class="micro"></p>
+        </section>
+
+        <section class="section-block">
+          <h2>Export & Publish</h2>
           <label>
             Publish Scope
             <select id="publish-scope">
@@ -235,6 +267,14 @@
               <option value="all">All Saved Tours</option>
             </select>
           </label>
+          <button id="export-zip">Download As ZIP</button>
+          <label id="export-folder-path-wrap">
+            Folder Path (on this machine)
+            <input id="export-folder-path" placeholder="/path/to/export/folder" />
+          </label>
+          <button id="export-folder">Export To Folder</button>
+          <p id="export-result" class="micro"></p>
+          <h2 class="publish-github-heading">Publish To GitHub</h2>
           <label>
             GitHub Owner (user or org)
             <input id="publish-owner" placeholder="your-github-name" />
@@ -270,6 +310,7 @@
 
       <!-- Main viewer region where pannellum renders the equirectangular panorama. -->
       <main class="viewer-wrap">
+        <div id="pano-widgets-overlay"></div>
         <div id="viewer"></div>
       </main>
     </div>
@@ -284,8 +325,11 @@
 
     <!-- Pannellum runtime. -->
     <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='pano_widgets.js', v='20260814a') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='pano_webxr.js', v='20260814a') }}"></script>
 
     <!-- Application logic for loading/saving tour and wiring UI events. -->
-    <script src="{{ url_for('static', filename='app.js', v='20260813b') }}"></script>
+    <script src="{{ url_for('static', filename='app.js', v='20260814a') }}"></script>
   </body>
 </html>

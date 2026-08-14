@@ -219,3 +219,121 @@
     box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
   }
 }
+
+/* Viewer chrome overlay: location map, auto-rotate toggle, WebXR button.
+   Shared by the editor, the local viewer and the published static viewer;
+   `.viewer-wrap` in each context is `position: relative` so this anchors
+   to the top-right corner of the panorama canvas (opposite the hotspot
+   legend, which anchors top-left). */
+.pano-overlay {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  max-width: min(240px, calc(100% - 32px));
+}
+
+.pano-map-panel {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 16, 12, 0.82);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+
+.pano-map-panel.is-empty {
+  display: none;
+}
+
+.pano-map-header {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #f4fff8;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pano-map-header::after {
+  content: "\25BE";
+  float: right;
+  transition: transform 0.15s ease;
+}
+
+.pano-map-panel.is-collapsed .pano-map-header::after {
+  transform: rotate(-90deg);
+}
+
+.pano-map-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pano-map-canvas {
+  width: 220px;
+  max-width: 100%;
+  height: 160px;
+}
+
+.pano-map-panel.is-collapsed .pano-map-canvas {
+  display: none;
+}
+
+.pano-map-canvas .leaflet-container {
+  background: #182018;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.pano-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.pano-button-row > * {
+  pointer-events: auto;
+}
+
+.pano-rotate-toggle {
+  width: auto;
+  margin: 0;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(10, 16, 12, 0.82);
+  color: #f4fff8;
+  font-size: 0.8rem;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+}
+
+.pano-rotate-toggle.is-active {
+  background: var(--accent, #e84855);
+  border-color: var(--accent, #e84855);
+  color: #241700;
+  font-weight: 700;
+}
+
+.pano-vr-host.is-hidden {
+  display: none;
+}
+
+/* Cosmetic-only override: three.js's VRButton sets most layout via inline
+   styles (kept as-is, including its default bottom-center placement). */
+.pano-webxr-button {
+  background: rgba(10, 16, 12, 0.82) !important;
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+  font-family: "Space Grotesk", sans-serif !important;
+}

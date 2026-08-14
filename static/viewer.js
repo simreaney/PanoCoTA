@@ -20,6 +20,7 @@ const el = {
   loadTour: document.getElementById("load-tour"),
   exitTour: document.getElementById("exit-tour"),
   status: document.getElementById("status"),
+  panoOverlay: document.getElementById("pano-widgets-overlay"),
 };
 
 function setStage(stage) {
@@ -449,18 +450,26 @@ function renderViewer() {
   });
 
   const fallbackFirstScene = tour.meta?.startScene || Object.keys(tour.scenes)[0];
+  const autoRotate = tour.meta?.autoRotate;
   const config = {
     default: {
       firstScene: fallbackFirstScene,
       autoLoad: true,
       showControls: true,
       compass: false,
+      ...(autoRotate?.enabled
+        ? { autoRotate: -(Number(autoRotate.speed) || 2), autoRotateInactivityDelay: 3000 }
+        : {}),
     },
     scenes: scenesConfig,
   };
 
   document.getElementById("viewer").innerHTML = "";
   viewer = pannellum.viewer("viewer", config);
+
+  if (window.PanoWidgets && el.panoOverlay) {
+    window.PanoWidgets.mount(el.panoOverlay, { tour, viewer });
+  }
 }
 
 async function fetchJson(url) {

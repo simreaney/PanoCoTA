@@ -207,6 +207,31 @@ h1 {
   display: none;
 }
 
+#tour-autorotate-speed-wrap.is-hidden {
+  display: none;
+}
+
+.location-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.location-fields input {
+  margin-top: 0;
+}
+
+#export-folder-path-wrap {
+  margin-top: 10px;
+}
+
+.publish-github-heading {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
 /* Stack each form label and its control. */
 label {
   display: block;
@@ -353,6 +378,7 @@ button.is-active {
 
 /* Outer spacing for the viewer area. */
 .viewer-wrap {
+  position: relative;
   padding: 0;
 }
 

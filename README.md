@@ -15,10 +15,14 @@ This README is a practical step-by-step guide for first use.
 ## What It Does
 
 - Builds 360 tours from panorama scenes.
-- Lets you add four hotspot types: Scene Navigation, Graphed Data, Image, and Free Text.
+- Lets you add hotspot types: Scene Navigation, Graphed Data, Image, Free Text, and Web Link.
 - Supports CSV-driven graph hotspots with up to 3 subplots.
 - Saves tours so they can be loaded and edited later.
-- Exports and publishes static, hostable tour packages to GitHub from the editor UI.
+- Reads GPS location from panorama EXIF metadata (or accepts manual coordinates) and shows an OpenStreetMap inset of scene locations in the viewer.
+- Can auto-generate Scene Navigation hotspots that link nearby scenes together.
+- Supports an optional auto-rotating panorama, with a live on/off toggle in the viewer.
+- Offers an immersive WebXR "Enter VR" mode for headsets/browsers that support it.
+- Exports and publishes static, hostable tour packages to GitHub, to a downloadable `.zip`, or to a folder on disk, all from the editor UI.
 
 ## Setup
 
@@ -73,6 +77,7 @@ For a read-only viewer: http://127.0.0.1:5000/viewer
 1. Upload a 360 image
 - In Add Scene, use the image upload control and upload your panorama.
 - After upload, pick that image in the 360 Panorama Image dropdown.
+- If the image has GPS location in its EXIF metadata, Latitude/Longitude fill in automatically. You can also enter coordinates manually, or click Detect Location From Image after picking an already-uploaded panorama.
 
 2. Create a scene
 - In Add Scene, enter a Title.
@@ -94,6 +99,16 @@ Hotspot types:
 Hotspot editing modes:
 - Move Hotspots: left-drag an existing hotspot to reposition it.
 - Delete Hotspots: click an existing hotspot to remove it.
+
+Auto-Generated Hotspots (optional):
+- Set Closest Scenes To Link (typically 1-4), then click Auto-Link Scenes.
+- Adds Scene Navigation hotspots between each scene and its N closest scenes. When scenes have a location, "closest" is GPS distance and the hotspot aims toward the target scene's bearing; otherwise scenes are linked in the order they were added.
+- Links are added in both directions so the tour stays walkable. Existing hotspots (manual or auto-generated) to the same target are never duplicated.
+- Click Remove Auto-Generated Hotspots to strip only the auto-generated links (manually placed hotspots are untouched) before re-running with a different count.
+
+Tour Settings (optional):
+- Check Auto-rotate panorama and set a speed to make the panorama slowly spin by default. Rotation pauses on user interaction and resumes after a few seconds idle.
+- Every viewer (editor, local viewer, published viewer) also shows a live Auto-Rotate toggle button over the panorama so a visitor can turn rotation on or off regardless of the author's default.
 
 4. Save your tour
 - In Save Tour, choose an existing tour name or create a new one.
@@ -137,11 +152,22 @@ The bundled demo tour is saved at `static/tours/demo.json` and is meant to be us
 - Graph preview may downsample large datasets in-editor for responsiveness; exported graphs include full datasets.
 - Graph floating windows use a fixed width for all subplot counts; 3-subplot graphs can scroll vertically when taller than the viewport.
 - Graph cache persists across closing/reopening tours and is auto-cleared only when graph renderer/settings signatures change.
+- The location map only appears once at least one scene in the tour has a location; it shows every located scene, highlights the active one, and clicking a marker jumps to that scene.
+- The Enter VR button only appears when the visitor's browser/device reports WebXR `immersive-vr` support; it renders the current scene's panorama in an independent Three.js scene alongside the normal Pannellum viewer.
 - Tests are not included yet and will be added later.
 
-## Publish To GitHub Pages
+## Export & Publish
 
-This repository now includes a static publishing pipeline for tours.
+This repository includes a static export pipeline for tours, reachable from the Export & Publish section of the editor.
+
+### Export To Disk
+
+- Choose Publish Scope (Current Tour or All Saved Tours), then either:
+  - Click Download As ZIP to download a self-contained static tour package (the same content a GitHub Pages publish would push) as a `.zip` file, or
+  - Enter a Folder Path and click Export To Folder to write that same static package directly to a folder on the machine running PanoCoTA.
+- Both produce an independent bundle scoped only to the selected tour(s) — it does not touch, or get merged with, anything already published to GitHub Pages.
+
+### Publish To GitHub Pages
 
 1. Build your tour locally in the editor and save it.
 
@@ -181,8 +207,13 @@ Exports are merged into the existing published tour manifest by default, so publ
 - gh-pages/index.html
 - gh-pages/viewer.js
 - gh-pages/viewer.css
+- gh-pages/hotspot-overlays.css
+- gh-pages/pano_widgets.js
+- gh-pages/pano_webxr.js
 - gh-pages/published/tours.json
 - gh-pages/published/tours/<tour_name>/...
+
+The last five files are copied fresh from `static/` on every export (disk or GitHub), so they never go stale relative to the editor/local-viewer copies.
 
 6. Publishing from the editor will:
 - create the target repository if it does not exist

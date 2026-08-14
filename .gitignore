@@ -67,3 +67,4 @@ gh-pages/published/**
 panocore/gh-pages/published/**
 !panocore/gh-pages/published/tours/demo/
 !panocore/gh-pages/published/tours/demo/**
+/static
