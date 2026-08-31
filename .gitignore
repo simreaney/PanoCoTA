@@ -43,27 +43,12 @@ tests/
 
 # Project runtime/generated assets
 static/tours/**
-!static/tours/demo.json
 static/data/**
-!static/data/demo/
-!static/data/demo/**
 static/graphs/**
-!static/graphs/demo/
-!static/graphs/demo/**
 static/images_360/**
-!static/images_360/demo/
-!static/images_360/demo/**
 static/images_2d/**
-!static/images_2d/demo/
-!static/images_2d/demo/**
 static/images/**
-!static/images/demo/
-!static/images/demo/**
 
 # Generated published tour payloads (editor export output)
 gh-pages/published/**
-!gh-pages/published/tours/demo/
-!gh-pages/published/tours/demo/**
 panocore/gh-pages/published/**
-!panocore/gh-pages/published/tours/demo/
-!panocore/gh-pages/published/tours/demo/**

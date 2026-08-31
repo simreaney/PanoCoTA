@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ..settings import DATA_DIR, GRAPH_RENDER_VERSION
 from ..storage import data_dir_for_tour, graph_dir_for_tour, is_allowed_data_file, sanitize_filename
-from .parsing import derive_y_axis_label, extract_multi_series, load_csv_rows
+from .parsing import derive_y_axis_label, extract_multi_series, extract_multi_series_with_x_cols, load_csv_rows
 from .render_matplotlib import MATPLOTLIB_AVAILABLE, generate_with_matplotlib
 from .render_pillow import generate_with_pillow
 
@@ -72,8 +72,8 @@ def _clean_graph_inputs(
     cleaned_y_cols = [value.strip() for value in raw_y_cols if value and value.strip()]
     if not cleaned_y_cols:
         raise ValueError("At least one y column is required.")
-    if len(cleaned_y_cols) > 3:
-        raise ValueError("A maximum of three y columns is supported.")
+    if len(cleaned_y_cols) > 8:
+        raise ValueError("A maximum of eight y columns is supported.")
 
     return safe_name, (x_col or "").strip(), cleaned_y_cols, animate
 
@@ -177,7 +177,7 @@ def _normalize_subplot_colors(subplot_colors: list[str] | None, count: int) -> l
         "gray",
         "pink",
     }
-    defaults = ["red", "teal", "orange"]
+    defaults = ["red", "teal", "orange", "blue", "purple", "green", "pink", "brown"]
     values = [str(value or "").strip().lower() for value in (subplot_colors or [])]
     if values and len(values) != count:
         raise ValueError("Number of color values must match subplot count.")
@@ -222,6 +222,26 @@ def _validate_subplot_options(subplot_types: list[str], inverted_bars: list[bool
         raise ValueError("plotType and invertBar option counts must match subplot count.")
 
 
+def _normalize_share_y(share_y: list[int | str] | None, count: int) -> list[int]:
+    """Normalize per-subplot share-Y references to 1-based subplot numbers (0 = none)."""
+    normalized: list[int] = []
+    for idx in range(count):
+        raw = share_y[idx] if share_y and idx < len(share_y) else None
+        if raw in (None, "", 0, "0", -1, "-1"):
+            normalized.append(0)
+            continue
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            raise ValueError(f"shareY value for subplot {idx + 1} must be a subplot number.")
+        if value < 1 or value > count or value == idx + 1:
+            raise ValueError(
+                f"shareY for subplot {idx + 1} must reference another subplot (1-{count})."
+            )
+        normalized.append(value)
+    return normalized
+
+
 def _build_graph_filename(
     csv_path: Path,
     x_col: str,
@@ -238,10 +258,14 @@ def _build_graph_filename(
     max_animation_frames: int | None,
     animation_loop_count: int,
     animation_time_budget_seconds: float | None,
+    x_cols: list[str] | None = None,
+    share_y: list[int] | None = None,
 ) -> str:
     """Create deterministic graph filename based on CSV and render inputs."""
     seed = (
         f"{GRAPH_RENDER_VERSION}|{csv_path.name}|{x_col}|{'|'.join(y_cols)}|"
+        f"{'|'.join(x_cols or [])}|"
+        f"{'|'.join(str(value) for value in (share_y or []))}|"
         f"{'|'.join(y_axis_labels)}|"
         f"{'|'.join(subplot_types)}|{'|'.join(subplot_colors)}|{'|'.join(str(flag) for flag in inverted_bars)}|"
         f"{animate}|{animation_speed:.3f}|{renderer}|{size}|{max_points or 0}|{max_animation_frames or 0}|{animation_loop_count}|{animation_time_budget_seconds or 0}|{csv_path.stat().st_mtime_ns}"
@@ -271,9 +295,15 @@ def _generate_graph_asset_impl(
     animation_loop_count: int | str | None = 0,
     animation_time_budget_seconds: float | int | str | None = None,
     force_regenerate: bool = False,
+    x_cols: list[str] | None = None,
+    share_y: list[int | str] | None = None,
 ) -> tuple[str, bool, int, int]:
     """Generate graph asset and return filename plus preview sampling metadata."""
     safe_csv, safe_x, safe_y_cols, animate = _clean_graph_inputs(csv_name, x_col, y_cols, animate)
+    safe_x_cols = [str(value or "").strip() for value in (x_cols or [])]
+    if safe_x_cols and len(safe_x_cols) != len(safe_y_cols):
+        raise ValueError("Number of xCol values must match subplot count.")
+    normalized_share_y = _normalize_share_y(share_y, len(safe_y_cols))
     renderer = (renderer or "auto").strip().lower()
     size = _normalize_size(size)
     max_points = _normalize_max_points(max_points)
@@ -320,6 +350,8 @@ def _generate_graph_asset_impl(
         max_animation_frames,
         animation_loop_count,
         animation_time_budget_seconds,
+        x_cols=safe_x_cols or None,
+        share_y=normalized_share_y,
     )
     graph_dir = graph_dir_for_tour(tour_name)
     graph_dir.mkdir(parents=True, exist_ok=True)
@@ -331,8 +363,12 @@ def _generate_graph_asset_impl(
 
     if output_path.exists() and not force_regenerate:
         fields, rows = load_csv_rows(csv_path)
-        x_values_existing, _, _, _ = extract_multi_series(fields, rows, safe_x, safe_y_cols)
-        original_points = len(x_values_existing)
+        if safe_x_cols:
+            x_series_existing, _, _ = extract_multi_series_with_x_cols(fields, rows, safe_x, safe_y_cols, safe_x_cols)
+            original_points = max(len(series) for series in x_series_existing)
+        else:
+            x_values_existing, _, _, _ = extract_multi_series(fields, rows, safe_x, safe_y_cols)
+            original_points = len(x_values_existing)
         plotted_points = original_points
         if max_points is not None and original_points > max_points:
             sampled = True
@@ -340,18 +376,39 @@ def _generate_graph_asset_impl(
         return graph_filename, sampled, original_points, plotted_points
 
     fields, rows = load_csv_rows(csv_path)
-    x_values, y_series, _, x_is_datetime = extract_multi_series(fields, rows, safe_x, safe_y_cols)
-    original_points = len(x_values)
-    plotted_points = original_points
-    if max_points is not None and len(x_values) > max_points:
-        # Uniform index sampling dramatically reduces matplotlib draw time on large files.
-        sampled = True
-        sample_count = max_points
-        span = len(x_values) - 1
-        indices = sorted({round(i * span / (sample_count - 1)) for i in range(sample_count)})
-        x_values = [x_values[idx] for idx in indices]
-        y_series = [[series[idx] for idx in indices] for series in y_series]
-        plotted_points = len(x_values)
+    if safe_x_cols:
+        x_series, y_series, x_is_datetime = extract_multi_series_with_x_cols(
+            fields, rows, safe_x, safe_y_cols, safe_x_cols
+        )
+        original_points = max(len(series) for series in x_series)
+        plotted_points = original_points
+        if max_points is not None:
+            # Uniform index sampling per subplot keeps large files fast while
+            # preserving each subplot's own timestamp spacing.
+            for series_idx in range(len(x_series)):
+                series_len = len(x_series[series_idx])
+                if series_len <= max_points:
+                    continue
+                sampled = True
+                span = series_len - 1
+                indices = sorted({round(i * span / (max_points - 1)) for i in range(max_points)})
+                x_series[series_idx] = [x_series[series_idx][idx] for idx in indices]
+                y_series[series_idx] = [y_series[series_idx][idx] for idx in indices]
+            plotted_points = max(len(series) for series in x_series)
+        x_values = x_series
+    else:
+        x_values, y_series, _, x_is_datetime = extract_multi_series(fields, rows, safe_x, safe_y_cols)
+        original_points = len(x_values)
+        plotted_points = original_points
+        if max_points is not None and len(x_values) > max_points:
+            # Uniform index sampling dramatically reduces matplotlib draw time on large files.
+            sampled = True
+            sample_count = max_points
+            span = len(x_values) - 1
+            indices = sorted({round(i * span / (sample_count - 1)) for i in range(sample_count)})
+            x_values = [x_values[idx] for idx in indices]
+            y_series = [[series[idx] for idx in indices] for series in y_series]
+            plotted_points = len(x_values)
 
     if len(safe_y_cols) == 1:
         y_axis_labels = [
@@ -383,6 +440,7 @@ def _generate_graph_asset_impl(
                 max_animation_frames,
                 animation_loop_count,
                 animation_time_budget_seconds,
+                share_y=normalized_share_y,
             )
             return graph_filename, sampled, original_points, plotted_points
         except ValueError:
@@ -406,6 +464,7 @@ def _generate_graph_asset_impl(
                 max_animation_frames,
                 animation_loop_count,
                 animation_time_budget_seconds,
+                share_y=normalized_share_y,
             )
             return graph_filename, sampled, original_points, plotted_points
         except ValueError:
@@ -420,9 +479,10 @@ def _generate_graph_asset_impl(
         if renderer == "pillow":
             raise ValueError("Pillow renderer only supports line plots.")
 
+    pillow_x_values = x_values[0] if safe_x_cols else x_values
     generate_with_pillow(
         output_path,
-        x_values,
+        pillow_x_values,
         y_series[0],
         y_axis_labels[0],
         x_is_datetime,
@@ -455,6 +515,8 @@ def generate_graph_asset(
     animation_loop_count: int | str | None = 0,
     animation_time_budget_seconds: float | int | str | None = None,
     force_regenerate: bool = False,
+    x_cols: list[str] | None = None,
+    share_y: list[int | str] | None = None,
 ) -> str:
     """Generate graph asset and return filename of cached/created image."""
     graph_filename, _, _, _ = _generate_graph_asset_impl(
@@ -477,6 +539,8 @@ def generate_graph_asset(
         animation_loop_count,
         animation_time_budget_seconds,
         force_regenerate,
+        x_cols,
+        share_y,
     )
     return graph_filename
 
@@ -501,6 +565,8 @@ def generate_graph_asset_with_info(
     animation_loop_count: int | str | None = 0,
     animation_time_budget_seconds: float | int | str | None = None,
     force_regenerate: bool = False,
+    x_cols: list[str] | None = None,
+    share_y: list[int | str] | None = None,
 ) -> dict:
     """Generate graph asset and return filename plus preview sampling metadata."""
     graph_filename, sampled, original_points, plotted_points = _generate_graph_asset_impl(
@@ -523,6 +589,8 @@ def generate_graph_asset_with_info(
         animation_loop_count,
         animation_time_budget_seconds,
         force_regenerate,
+        x_cols,
+        share_y,
     )
     return {
         "filename": graph_filename,

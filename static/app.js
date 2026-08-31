@@ -28,6 +28,8 @@ let pendingHotspotPlacement = null;
 let hotspotPanelMode = "none";
 let hotspotMoveMode = false;
 let hotspotDeleteMode = false;
+let hotspotEditMode = false;
+let editingHotspot = null; // { sceneId, hotspotIndex } while editing
 let dragState = null;
 const HOTSPOT_DRAG_THRESHOLD_PX = 6;
 let hotspotIdCounter = 0;
@@ -49,6 +51,9 @@ const SUBPLOT_COLOR_OPTIONS = [
 ];
 
 const DEFAULT_GRAPH_SECONDS_PER_FRAME = 0.1;
+
+// Sentinel for the main X Column dropdown meaning "each subplot picks its own X".
+const PER_SUBPLOT_X = "__per_subplot_x__";
 
 function runWhenIdle(task) {
   if (typeof window.requestIdleCallback === "function") {
@@ -152,6 +157,11 @@ const el = {
   hotspotModeAddButton: document.getElementById("hotspot-mode-add"),
   hotspotModeMoveButton: document.getElementById("hotspot-mode-move"),
   hotspotModeDeleteButton: document.getElementById("hotspot-mode-delete"),
+  hotspotModeEditButton: document.getElementById("hotspot-mode-edit"),
+  saveHotspotEditButton: document.getElementById("save-hotspot-edit"),
+  cancelHotspotEditButton: document.getElementById("cancel-hotspot-edit"),
+  hotspotEditBar: document.getElementById("hotspot-edit-bar"),
+  hotspotEditStatus: document.getElementById("hotspot-edit-status"),
   hotspotAddForm: document.getElementById("hotspot-add-form"),
   targetSceneWrap: document.getElementById("target-scene-wrap"),
   graphCsvWrap: document.getElementById("graph-csv-wrap"),
@@ -354,16 +364,20 @@ function getSelectedSubplotConfigs() {
   const rows = Array.from(el.hotspotYSelects.querySelectorAll(".subplot-config-row"));
   return rows.map((row) => {
     const yNode = row.querySelector(".subplot-y-select");
+    const xNode = row.querySelector(".subplot-x-select");
     const typeNode = row.querySelector(".subplot-type-select");
     const invertNode = row.querySelector(".subplot-invert-check");
     const colorNode = row.querySelector(".subplot-color-select");
     const axisLabelNode = row.querySelector(".subplot-axis-label-input");
+    const shareYNode = row.querySelector(".subplot-sharey-select");
     return {
       y: (yNode?.value || "").trim(),
+      x: (xNode?.value || "").trim(),
       type: (typeNode?.value || "line").trim().toLowerCase(),
       invertBar: Boolean(invertNode?.checked),
       color: (colorNode?.value || "").trim().toLowerCase(),
       yAxisLabel: (axisLabelNode?.value || "").trim(),
+      shareY: Number.parseInt(shareYNode?.value || "0", 10) || 0,
     };
   });
 }
@@ -372,9 +386,29 @@ function updateInvertToggleVisibility() {
   return;
 }
 
+function isPerSubplotXMode() {
+  return el.hotspotX.value === PER_SUBPLOT_X;
+}
+
+function setMainXOptions(preferredX = "") {
+  // Main X dropdown: (auto index), every CSV column, and (per-subplot X).
+  const html = [`<option value="">(auto index)</option>`];
+  csvColumns.forEach((column) => {
+    html.push(`<option value="${column}">${column}</option>`);
+  });
+  html.push(`<option value="${PER_SUBPLOT_X}">(per-subplot X)</option>`);
+  el.hotspotX.innerHTML = html.join("");
+  if (preferredX && (csvColumns.includes(preferredX) || preferredX === PER_SUBPLOT_X)) {
+    el.hotspotX.value = preferredX;
+  } else {
+    el.hotspotX.value = "";
+  }
+}
+
 function renderSubplotConfigRows(preferredConfigs = []) {
   const requested = Number.parseInt(el.hotspotSubplots.value, 10);
-  const subplotCount = Number.isFinite(requested) ? clamp(requested, 1, 3) : 1;
+  const subplotCount = Number.isFinite(requested) ? clamp(requested, 1, 8) : 1;
+  const perSubplotX = isPerSubplotXMode();
   const html = [];
   const defaultColors = SUBPLOT_COLOR_OPTIONS.map((item) => item.value);
 
@@ -388,10 +422,27 @@ function renderSubplotConfigRows(preferredConfigs = []) {
       (option) =>
         `<option value="${option.value}" ${preferredColor === option.value ? "selected" : ""}>${option.label}</option>`,
     ).join("");
+    // In per-subplot X mode every subplot must pick its own X column;
+    // otherwise the shared main X applies and no per-subplot X is offered.
+    const xLabelHtml = perSubplotX
+      ? `<label class="subplot-x-label">Subplot ${index + 1} X Column<select class="subplot-x-select" id="hotspot-x-${index}"></select></label>`
+      : "";
+    // Share-Y options: none, or any other subplot (1-based numbers).
+    const preferredShareY = Number(preferred.shareY) || 0;
+    const shareYOptionsHtml = [
+      `<option value="0">None</option>`,
+      ...Array.from({ length: subplotCount }, (_, other) => other + 1)
+        .filter((other) => other !== index + 1)
+        .map((other) =>
+          `<option value="${other}" ${preferredShareY === other ? "selected" : ""}>Subplot ${other}</option>`,
+        ),
+    ].join("");
     html.push(
       `<div class="subplot-config-row">
         <label class="subplot-y-label">Subplot ${index + 1} Y Column<select class="subplot-y-select" id="hotspot-y-${index}"></select></label>
+        ${xLabelHtml}
         <label class="subplot-axis-label">Y Axis Label (optional)<input class="subplot-axis-label-input" id="hotspot-y-label-${index}" value="${String(preferred.yAxisLabel || "").replace(/&/g, "&amp;").replace(/\"/g, "&quot;")}" placeholder="Defaults to column name" /></label>
+        <label class="subplot-sharey-label">Share Y range with<select class="subplot-sharey-select" id="hotspot-sharey-${index}">${shareYOptionsHtml}</select></label>
         <label class="subplot-type-label">Type<select class="subplot-type-select" id="hotspot-type-${index}">
           <option value="line" ${preferredType === "line" ? "selected" : ""}>Line</option>
           <option value="scatter" ${preferredType === "scatter" ? "selected" : ""}>Scatter</option>
@@ -410,6 +461,15 @@ function renderSubplotConfigRows(preferredConfigs = []) {
     setSelectOptions(selectEl, csvColumns, false, "", preferred);
   });
 
+  if (perSubplotX) {
+    const xSelects = Array.from(el.hotspotYSelects.querySelectorAll(".subplot-x-select"));
+    xSelects.forEach((selectEl, index) => {
+      const preferred = preferredConfigs[index]?.x || "";
+      // No blank option: a specific X column is required per subplot.
+      setSelectOptions(selectEl, csvColumns, false, "", preferred);
+    });
+  }
+
   updateInvertToggleVisibility();
 }
 
@@ -417,7 +477,7 @@ async function refreshColumnSelects(preferredX = "", preferredConfigs = [], tour
   const selectedCsv = el.hotspotCsv.value;
   csvColumns = await fetchCsvColumns(selectedCsv, tourName);
 
-  setSelectOptions(el.hotspotX, csvColumns, true, "(auto index)", preferredX);
+  setMainXOptions(preferredX);
   renderSubplotConfigRows(preferredConfigs);
 }
 
@@ -427,7 +487,7 @@ async function refreshCsvSelects(preferredCsv = "", preferredX = "", preferredCo
   setSelectOptions(el.hotspotCsv, csvFiles, true, "(upload new csv)", preferredCsv);
 
   if (csvFiles.length === 0) {
-    setSelectOptions(el.hotspotX, [], true, "(auto index)", "");
+    setMainXOptions("");
     csvColumns = [];
     renderSubplotConfigRows([]);
     return;
@@ -509,7 +569,11 @@ function createHotspotDom(hotSpotDiv, args) {
 
   if (args.interactive) {
     wrap.classList.add("hotspot-wrap--editable");
-    wrap.title = hotspotDeleteMode ? "Click to delete hotspot" : "Left-drag to move hotspot";
+    wrap.title = hotspotDeleteMode
+      ? "Click to delete hotspot"
+      : hotspotEditMode
+        ? "Click to edit hotspot"
+        : "Left-drag to move hotspot";
     attachHotspotMoveHandlers(wrap, hotSpotDiv, args.sceneId, args.hotspotIndex);
   }
 
@@ -523,13 +587,14 @@ function createHotspotDom(hotSpotDiv, args) {
     kind === "graph" ||
     kind === "image" ||
     kind === "text" ||
-    kind === "textLink"
+    kind === "textLink" ||
+    kind === "textPanel"
   ) {
     const prompt = document.createElement("div");
     prompt.className = `prompt-card prompt-card--${kind}`;
     const promptText = document.createElement("div");
     promptText.textContent =
-      (kind === "text" || kind === "textLink" ? args.prompt || args.text : args.text || args.prompt) ||
+      (kind === "text" || kind === "textLink" || kind === "textPanel" ? args.prompt || args.text : args.text || args.prompt) ||
       (kind === "graph"
         ? "Graphed data"
         : kind === "image"
@@ -558,8 +623,8 @@ function createHotspotDom(hotSpotDiv, args) {
         ? args.graph.yColumns.filter((value) => Boolean(String(value || "").trim()))
         : [args.graph.y].filter((value) => Boolean(String(value || "").trim()));
       const subplotCountHint = Number.isFinite(parsedSubplots)
-        ? clamp(parsedSubplots, 1, 3)
-        : clamp(yColumnsHint.length || 1, 1, 3);
+        ? clamp(parsedSubplots, 1, 8)
+        : clamp(yColumnsHint.length || 1, 1, 8);
       const cardWidth = 700;
       prompt.style.setProperty("--graph-card-width", `${cardWidth}px`);
 
@@ -584,6 +649,12 @@ function createHotspotDom(hotSpotDiv, args) {
         const yAxisLabels = Array.isArray(args.graph.yAxisLabels)
           ? args.graph.yAxisLabels.map((value) => String(value ?? "").trim())
           : [];
+        const xColumns = Array.isArray(args.graph.xColumns)
+          ? args.graph.xColumns.map((value) => String(value ?? "").trim())
+          : [];
+        const shareY = Array.isArray(args.graph.shareY)
+          ? args.graph.shareY.map((value) => Number(value) || 0)
+          : [];
 
         const query = new URLSearchParams({
           csv: args.graph.csv || "",
@@ -596,16 +667,22 @@ function createHotspotDom(hotSpotDiv, args) {
         query.set("maxPoints", String(getAdaptiveGraphPreviewMaxPoints()));
         query.set("animationSpeed", String(DEFAULT_GRAPH_SECONDS_PER_FRAME));
         const subplots = Number.parseInt(args.graph.subplots, 10);
-        const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 3) : clamp(yColumns.length || 1, 1, 3);
+        const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 8) : clamp(yColumns.length || 1, 1, 8);
         query.set("subplots", String(subplotCount));
         yColumns.slice(0, subplotCount).forEach((columnName) => {
           query.append("y", columnName);
         });
+        const perSubplotX = xColumns.length > 0;
         for (let idx = 0; idx < subplotCount; idx += 1) {
           query.append("plotType", subplotTypes[idx] || "line");
           query.append("color", subplotColors[idx] || SUBPLOT_COLOR_OPTIONS[idx % SUBPLOT_COLOR_OPTIONS.length].value);
           query.append("invertBar", invertedBars[idx] ? "true" : "false");
           query.append("yAxisLabel", yAxisLabels[idx] || "");
+          if (perSubplotX) {
+            query.append("xCol", xColumns[idx] || "");
+          }
+          // Always append (even empty) so shareY values stay positionally aligned.
+          query.append("shareY", String(shareY[idx] || 0));
         }
         if (args.graph.x) {
           query.set("x", args.graph.x);
@@ -682,6 +759,13 @@ function createHotspotDom(hotSpotDiv, args) {
         requestGraphAsset(queryKey).catch(() => {
           // Ignore prefetch errors; hover request will show user-facing feedback.
         });
+      });
+    } else if (kind === "textPanel") {
+      // Always-visible floating panel (no hover required).
+      prompt.classList.add("is-visible");
+      runWhenIdle(() => positionPromptCard(wrap, prompt));
+      wrap.addEventListener("mouseenter", () => {
+        positionPromptCard(wrap, prompt);
       });
     } else if (kind === "image" && args.image) {
       prompt.classList.add("prompt-card--image");
@@ -884,6 +968,7 @@ function updateHotspotModeButtons() {
   const isAddMode = hotspotPanelMode === "add";
   const isMoveMode = hotspotPanelMode === "move";
   const isDeleteMode = hotspotPanelMode === "delete";
+  const isEditMode = hotspotPanelMode === "edit";
 
   if (el.hotspotModeAddButton) {
     el.hotspotModeAddButton.classList.toggle("is-active", isAddMode);
@@ -894,13 +979,20 @@ function updateHotspotModeButtons() {
   if (el.hotspotModeDeleteButton) {
     el.hotspotModeDeleteButton.classList.toggle("is-active", isDeleteMode);
   }
+  if (el.hotspotModeEditButton) {
+    el.hotspotModeEditButton.classList.toggle("is-active", isEditMode);
+  }
   if (el.hotspotAddForm) {
-    el.hotspotAddForm.classList.toggle("is-hidden", !isAddMode);
+    el.hotspotAddForm.classList.toggle("is-hidden", !isAddMode && !isEditMode);
   }
   if (el.placeHotspotButton) {
     const placing = Boolean(pendingHotspotPlacement);
     el.placeHotspotButton.textContent = placing ? "Cancel Viewer Placement" : "Place Hotspot In Viewer";
     el.placeHotspotButton.classList.toggle("is-active", placing);
+    el.placeHotspotButton.style.display = isEditMode ? "none" : "";
+  }
+  if (el.hotspotEditBar) {
+    el.hotspotEditBar.classList.toggle("is-hidden", !isEditMode);
   }
 }
 
@@ -934,8 +1026,21 @@ function setHotspotDeleteMode(enabled) {
   refreshHotspotInteractivityInViewer();
 }
 
+function setHotspotEditMode(enabled) {
+  hotspotEditMode = Boolean(enabled);
+  if (!hotspotEditMode) {
+    editingHotspot = null;
+  }
+  document.body.classList.toggle("is-editing-hotspots", hotspotEditMode);
+  if (pendingHotspotPlacement) {
+    cancelHotspotPlacement();
+  }
+  updateHotspotModeButtons();
+  refreshHotspotInteractivityInViewer();
+}
+
 function setHotspotPanelMode(mode) {
-  const normalized = ["add", "move", "delete", "none"].includes(mode) ? mode : "none";
+  const normalized = ["add", "move", "delete", "edit", "none"].includes(mode) ? mode : "none";
   hotspotPanelMode = normalized;
 
   if (normalized !== "add" && pendingHotspotPlacement) {
@@ -944,16 +1049,98 @@ function setHotspotPanelMode(mode) {
 
   if (normalized === "move") {
     setHotspotDeleteMode(false);
+    setHotspotEditMode(false);
     setHotspotMoveMode(true);
   } else if (normalized === "delete") {
     setHotspotMoveMode(false);
+    setHotspotEditMode(false);
     setHotspotDeleteMode(true);
+  } else if (normalized === "edit") {
+    setHotspotMoveMode(false);
+    setHotspotDeleteMode(false);
+    setHotspotEditMode(true);
   } else {
     setHotspotMoveMode(false);
     setHotspotDeleteMode(false);
+    setHotspotEditMode(false);
   }
 
   updateHotspotModeButtons();
+}
+
+function populateHotspotForm(spot) {
+  const kind = spot.kind || "scene";
+  el.hotspotKind.value = kind;
+  el.hotspotLabel.value = String(spot.text || "");
+  updateHotspotModeUI();
+
+  if (kind === "scene") {
+    el.hotspotTarget.value = spot.targetScene || "";
+  } else if (kind === "graph" && spot.graph) {
+    const g = spot.graph;
+    const perSubplot = Array.isArray(g.xColumns) && g.xColumns.length > 0;
+    const preferredX = perSubplot ? PER_SUBPLOT_X : String(g.x || "");
+    const preferredConfigs = (Array.isArray(g.yColumns) ? g.yColumns : []).map((yCol, idx) => ({
+      y: String(yCol || ""),
+      x: perSubplot ? String(g.xColumns[idx] || "") : "",
+      type: String((g.subplotTypes || [])[idx] || "line"),
+      color: String((g.subplotColors || [])[idx] || ""),
+      invertBar: Boolean((g.invertedBars || [])[idx]),
+      yAxisLabel: String((g.yAxisLabels || [])[idx] || ""),
+      shareY: Number((g.shareY || [])[idx]) || 0,
+    }));
+    el.hotspotCsv.value = String(g.csv || "");
+    el.hotspotSubplots.value = String(clamp(Number(g.subplots) || preferredConfigs.length || 1, 1, 8));
+    el.hotspotAnimate.value = asTruthy(g.animate) ? "true" : "false";
+    refreshCsvSelects(String(g.csv || ""), preferredX, preferredConfigs, currentAssetTour).catch(() => {
+      setStatus("Could not reload CSV columns for editing.", true);
+    });
+  } else if (kind === "image" && spot.image) {
+    el.hotspotImageFile.value = String(spot.image.file || "");
+    el.hotspotImageCaption.value = String(spot.image.caption || "");
+    updateHotspotModeUI();
+  } else if (kind === "text" || kind === "textPanel") {
+    el.hotspotFreeText.value = String(spot.prompt || "");
+  } else if (kind === "textLink" && spot.link) {
+    el.hotspotFreeText.value = String(spot.prompt || "");
+    el.hotspotLinkUrl.value = String(spot.link.url || "");
+    el.hotspotLinkTarget.value = spot.link.target === "_self" ? "_self" : "_blank";
+  }
+}
+
+function startHotspotEdit(sceneId, hotspotIndex) {
+  const spot = findHotspot(sceneId, hotspotIndex);
+  if (!spot) {
+    setStatus("Hotspot no longer exists.", true);
+    return;
+  }
+  editingHotspot = { sceneId, hotspotIndex };
+  populateHotspotForm(spot);
+  if (el.hotspotEditStatus) {
+    el.hotspotEditStatus.textContent = `Editing '${spot.text || "hotspot"}' — adjust the form, then Save Changes.`;
+  }
+  setStatus("Hotspot loaded into the form. Edit and click Save Changes.");
+}
+
+function saveHotspotEdit() {
+  if (!editingHotspot) {
+    setStatus("No hotspot selected for editing.", true);
+    return;
+  }
+  const { sceneId, hotspotIndex } = editingHotspot;
+  const scene = tour?.scenes?.[sceneId];
+  const existing = scene?.hotSpots?.[hotspotIndex];
+  if (!existing) {
+    editingHotspot = null;
+    setStatus("Hotspot no longer exists.", true);
+    return;
+  }
+  const built = buildHotspotEntry(sceneId, Number(existing.pitch || 0), Number(existing.yaw || 0));
+  built.spot.id = existing.id;
+  scene.hotSpots[hotspotIndex] = built.spot;
+  editingHotspot = null;
+  syncHotspotInViewer(sceneId, hotspotIndex);
+  setStatus("Hotspot updated. Save the tour to persist changes.");
 }
 
 function buildHotspotEntry(source, pitch, yaw) {
@@ -981,9 +1168,11 @@ function buildHotspotEntry(source, pitch, yaw) {
 
   if (kind === "graph") {
     const csv = el.hotspotCsv.value.trim();
-    const x = el.hotspotX.value.trim();
+    const rawX = el.hotspotX.value.trim();
+    const perSubplotX = rawX === PER_SUBPLOT_X;
+    const x = perSubplotX ? "" : rawX;
     const subplots = Number.parseInt(el.hotspotSubplots.value, 10);
-    const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 3) : 1;
+    const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 8) : 1;
     const subplotConfigs = getSelectedSubplotConfigs().slice(0, subplotCount);
     const yColumns = subplotConfigs.map((item) => item.y).filter((value) => Boolean(value));
     const subplotTypes = subplotConfigs.map((item) => {
@@ -999,11 +1188,20 @@ function buildHotspotEntry(source, pitch, yaw) {
     });
     const invertedBars = subplotConfigs.map((item) => Boolean(item.invertBar));
     const yAxisLabels = subplotConfigs.map((item) => String(item.yAxisLabel || "").trim());
+    const shareY = subplotConfigs.map((item) => Number(item.shareY) || 0);
+    // Per-subplot X mode: every subplot must specify its own X column.
+    // Shared mode: no per-subplot X columns are stored.
+    const xColumns = perSubplotX
+      ? subplotConfigs.map((item) => String(item.x || "").trim())
+      : [];
     const animate = el.hotspotAnimate.value === "true";
     const animationSpeed = DEFAULT_GRAPH_SECONDS_PER_FRAME;
 
     if (!csv || yColumns.length !== subplotCount || subplotTypes.length !== subplotCount) {
       throw new Error("Graph hotspots require CSV plus one Y column per subplot.");
+    }
+    if (perSubplotX && xColumns.some((value) => !value)) {
+      throw new Error("Per-subplot X mode requires an X column for every subplot.");
     }
 
     return {
@@ -1018,11 +1216,13 @@ function buildHotspotEntry(source, pitch, yaw) {
           x,
           y: yColumns[0],
           yColumns,
+          xColumns,
           subplots: subplotCount,
           subplotTypes,
           subplotColors,
           invertedBars,
           yAxisLabels,
+          shareY,
           animate,
           animationSpeed,
           size: "m",
@@ -1073,6 +1273,25 @@ function buildHotspotEntry(source, pitch, yaw) {
         prompt: freeText,
       },
       message: `Added free text hotspot in '${source}'.`,
+      clear: "none",
+    };
+  }
+
+  if (kind === "textPanel") {
+    const freeText = el.hotspotFreeText.value.trim();
+    if (!freeText) {
+      throw new Error("Text panels require text content.");
+    }
+
+    return {
+      spot: {
+        kind: "textPanel",
+        pitch,
+        yaw,
+        text,
+        prompt: freeText,
+      },
+      message: `Added text panel in '${source}'.`,
       clear: "none",
     };
   }
@@ -1269,6 +1488,20 @@ function attachHotspotMoveHandlers(wrap, hotSpotDiv, sceneId, hotspotIndex) {
     renderViewerPreservingView();
     setStatus("Hotspot deleted. Save the tour to persist changes.");
   }, true);
+
+  wrap.addEventListener("click", (event) => {
+    if (!hotspotEditMode || hotspotMoveMode || hotspotDeleteMode || event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
+
+    startHotspotEdit(sceneId, hotspotIndex);
+  }, true);
 }
 
 function toPannellumHotspot(spot) {
@@ -1278,7 +1511,7 @@ function toPannellumHotspot(spot) {
     yaw: Number(spot.yaw || 0),
     createTooltipFunc: createHotspotDom,
     createTooltipArgs: {
-      interactive: hotspotMoveMode || hotspotDeleteMode,
+      interactive: hotspotMoveMode || hotspotDeleteMode || hotspotEditMode,
       sceneId: spot.sceneId,
       hotspotIndex: spot.hotspotIndex,
       prompt: spot.prompt || "",
@@ -1610,8 +1843,9 @@ function updateHotspotModeUI() {
   const isImage = el.hotspotKind.value === "image";
   const isText = el.hotspotKind.value === "text";
   const isTextLink = el.hotspotKind.value === "textLink";
-  el.targetSceneWrap.style.display = isGraph || isImage || isText || isTextLink ? "none" : "block";
-  el.textContentWrap.style.display = isText || isTextLink ? "block" : "none";
+  const isTextPanel = el.hotspotKind.value === "textPanel";
+  el.targetSceneWrap.style.display = isGraph || isImage || isText || isTextLink || isTextPanel ? "none" : "block";
+  el.textContentWrap.style.display = isText || isTextLink || isTextPanel ? "block" : "none";
   el.textLinkUrlWrap.style.display = isTextLink ? "block" : "none";
   el.textLinkTargetWrap.style.display = isTextLink ? "block" : "none";
   el.graphCsvWrap.style.display = isGraph ? "block" : "none";
@@ -1621,6 +1855,9 @@ function updateHotspotModeUI() {
   el.graphAnimateWrap.style.display = isGraph ? "block" : "none";
   el.imageFileWrap.style.display = isImage ? "block" : "none";
   el.imageCaptionWrap.style.display = isImage ? "block" : "none";
+  el.hotspotFreeText.placeholder = isTextPanel
+    ? "Enter text to display in an always-visible panel"
+    : "Enter free text to show on hover";
   const wantsCsvUpload = isGraph && !el.hotspotCsv.value;
   el.graphUploadWrap.style.display = wantsCsvUpload ? "block" : "none";
   el.csvUploadButton.style.display = wantsCsvUpload ? "block" : "none";
@@ -1702,6 +1939,11 @@ function toggleViewerPlacement() {
   const source = getActiveViewerSceneId();
   if (!tour.scenes[source]) {
     setStatus("Source scene must exist before placing a hotspot.", true);
+    return;
+  }
+
+  if (hotspotEditMode) {
+    setStatus("Use Save Changes to apply edits; placement is for new hotspots.", true);
     return;
   }
 
@@ -1808,6 +2050,32 @@ function setupEvents() {
     }
   });
 
+  el.hotspotModeEditButton.addEventListener("click", () => {
+    const nextMode = hotspotPanelMode === "edit" ? "none" : "edit";
+    setHotspotPanelMode(nextMode);
+    if (nextMode === "edit") {
+      setStatus("Hotspot edit mode enabled. Click a hotspot in the viewer to edit it.");
+    } else {
+      setStatus("Hotspot edit mode disabled.");
+    }
+  });
+
+  el.saveHotspotEditButton.addEventListener("click", () => {
+    try {
+      saveHotspotEdit();
+    } catch (error) {
+      setStatus(error.message || "Failed to save hotspot changes.", true);
+    }
+  });
+
+  el.cancelHotspotEditButton.addEventListener("click", () => {
+    editingHotspot = null;
+    if (el.hotspotEditStatus) {
+      el.hotspotEditStatus.textContent = "Click a hotspot in the viewer to edit it.";
+    }
+    setStatus("Hotspot editing cancelled.");
+  });
+
   el.refreshTours.addEventListener("click", async () => {
     try {
       await refreshTourList(resolveLoadTourName(), activeTourName);
@@ -1832,6 +2100,11 @@ function setupEvents() {
 
   el.hotspotKind.addEventListener("change", updateHotspotModeUI);
   el.hotspotSubplots.addEventListener("change", () => {
+    const existing = getSelectedSubplotConfigs();
+    renderSubplotConfigRows(existing);
+  });
+  el.hotspotX.addEventListener("change", () => {
+    // Switching between shared X and per-subplot X re-renders the subplot rows.
     const existing = getSelectedSubplotConfigs();
     renderSubplotConfigRows(existing);
   });

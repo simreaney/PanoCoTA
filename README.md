@@ -4,7 +4,7 @@
 
 # PanoCoTA (*Pano*ramic *Co*ntent and *T*ours for *A*cademia)
 
-By Aaron Neill
+Conceptualised and vibe-coded by A J Neill (JLU Giessen)
 
 [![DOI](https://zenodo.org/badge/1325412562.svg)](https://doi.org/10.5281/zenodo.21840893)
 
@@ -14,10 +14,18 @@ This README is a practical step-by-step guide for first use.
 
 ## What It Does
 
-- Builds 360 tours from panorama scenes.
-- Lets you add four hotspot types: Scene Navigation, Graphed Data, Image, and Free Text.
-- Supports CSV-driven graph hotspots with up to 3 subplots.
-- Saves tours so they can be loaded and edited later.
+- Builds 360 tours from panorama scenes (full-sphere or partial/cylinder coverage).
+- Lets you add hotspot types: Scene Navigation, Graphed Data, Image, Free Text, Web Link, and always-visible Text Panels.
+- Supports CSV-driven graph hotspots with up to 8 stacked subplots (Line, Scatter, or Bar per subplot).
+- Graph subplots can share one X column or each use its own X column (e.g. two sites with different timestamps on a common time axis).
+- Any subplot can share its Y-axis range with another subplot for direct comparison.
+- Add, move, delete, and edit hotspots (including changing the columns a graph subplot plots).
+- Image hotspots support an optional caption displayed below the image.
+- Web Link hotspots support opening in a new tab or the same tab.
+- Scene management: switch the active scene, jump to a scene, or delete a scene.
+- Panorama coverage: auto-detect vertical FOV and offset from image metadata, or set them manually for partial (cylinder) panoramas.
+- Saves tours so they can be loaded, closed, deleted, and edited later.
+- Built-in Tour Help popup with step-by-step guidance.
 - Exports and publishes static, hostable tour packages to GitHub from the editor UI.
 
 ## Setup
@@ -78,6 +86,7 @@ For a read-only viewer: http://127.0.0.1:5000/viewer
 - In Add Scene, enter a Title.
 - Click Add Scene.
 - Note: the scene Title is also used as the scene ID.
+- Panorama Coverage: leave as Full sphere (360 x 180) for standard equirectangular panoramas. If your image is a partial panorama (360 sweep missing sky or ground), switch to Partial (360 x limited vertical) and either click Detect Coverage From Image to read the vertical FOV/offset from the image (metadata or aspect-ratio estimate), or enter the Vertical Field Of View and Vertical Offset manually.
 
 3. Add hotspots
 - In the Hotspots section, click Add Hotspot.
@@ -87,46 +96,29 @@ For a read-only viewer: http://127.0.0.1:5000/viewer
 
 Hotspot types:
 - Scene Navigation: choose Target Scene.
-- Graphed Data: upload/select CSV, choose x/y columns, subplot types, subplot colors, and optional Y-axis inversion.
-- Image: upload/select a 2D image, then add.
+- Graphed Data: upload/select CSV, choose the X column, then per subplot set the Y column, plot type (Line, Scatter, or Bar), color, optional Y-axis label, optional Y-axis inversion, and optional "Share Y range with" another subplot. The X column can be shared by all subplots or set to "(per-subplot X)" so each subplot uses its own timestamp column (useful for plotting several sites with different timestamps on one common time axis).
+- Image: upload/select a 2D image, optionally add a caption shown below the image, then add.
 - Free Text: enter Free Text Content, then add.
+- Text Panel: enter text that stays visible at all times (no hover) — good for scene introductions.
+- Web Link: enter Free Text Content plus an external URL and click behavior (open in new tab or same tab).
 
 Hotspot editing modes:
 - Move Hotspots: left-drag an existing hotspot to reposition it.
 - Delete Hotspots: click an existing hotspot to remove it.
+- Edit Hotspot: click an existing hotspot to load it into the form, change any setting (including the columns a graph subplot plots), then Save Changes.
 
-4. Save your tour
+4. Manage scenes
+- Use the Active Scene dropdown plus Open Scene to jump between scenes while editing.
+- Use Delete Scene to remove a scene from the tour (remember to save afterwards).
+
+5. Save your tour
 - In Save Tour, choose an existing tour name or create a new one.
 - Click Save Tour To Disk.
 
-5. Load it later
+6. Load it later
 - In Load Tour, select a saved tour and click Load Tour From Disk.
-
-## Demo Tour Instructions
-
-The bundled demo tour is saved at `static/tours/demo.json` and is meant to be used as a ready-made example.
-
-1. Start the app.
-- Run `python panocota.py`.
-- Leave the app open so the viewer and editor can load the demo tour.
-
-2. Open the read-only viewer first.
-- Go to `http://127.0.0.1:5000/viewer`.
-- Load `demo` there to inspect the finished tour without editing it.
-
-3. Then open the editor if you want to work with the demo.
-- Go to `http://127.0.0.1:5000`.
-- In Load Tour, select `demo` and click Load Tour From Disk.
-
-4. Explore the sample hotspots.
-- Scene hotspots move between Gladi Grassland and Gladi Dairy.
-- Graph hotspots open hover cards with plotted data.
-- Image hotspots show 2D reference panels.
-- Text Link hotspots open external research links.
-
-5. Use the demo as a template.
-- Save under a new tour name before making changes.
-- Keep `demo` around if you want a clean sample tour for testing publish and viewer behavior.
+- Use Close Tour to drop the current tour without saving, or Delete Tour to remove a saved tour from disk.
+- Stuck? Click Open Tour Help in the Current Tour section for a step-by-step popup guide.
 
 ## Notes
 
@@ -135,9 +127,11 @@ The bundled demo tour is saved at `static/tours/demo.json` and is meant to be us
 - Graph hotspots can be static or animated.
 - Graph hotspot animation timing is automatic in the UI and API defaults: target 0.1s per frame, then adjusted to keep one loop between 5s and 10s.
 - Graph preview may downsample large datasets in-editor for responsiveness; exported graphs include full datasets.
-- Graph floating windows use a fixed width for all subplot counts; 3-subplot graphs can scroll vertically when taller than the viewport.
+- Graph floating windows use a fixed width for all subplot counts; tall multi-subplot graphs can scroll vertically when taller than the viewport.
 - Graph cache persists across closing/reopening tours and is auto-cleared only when graph renderer/settings signatures change.
-- Tests are not included yet and will be added later.
+- Graph subplots render with a tight layout and right-aligned Y-axis labels so stacked subplots line up vertically.
+- Non-finite CSV values (NaN/inf) are skipped so they cannot break axis limits.
+- Tests live in `tests/` and can be run with `python -m pytest tests/`.
 
 ## Publish To GitHub Pages
 
@@ -151,6 +145,7 @@ This repository now includes a static publishing pipeline for tours.
 - Publish Scope: Current Tour or All Saved Tours
 - GitHub Owner and optional Repo
 - Owner Type, Branch, and private repo toggle
+- Publish via GitHub Pages (checked by default; uncheck to push the static package without configuring Pages)
 - GitHub Token (one-time)
 
 4. Click Export and Publish.
@@ -181,6 +176,7 @@ Exports are merged into the existing published tour manifest by default, so publ
 - gh-pages/index.html
 - gh-pages/viewer.js
 - gh-pages/viewer.css
+- gh-pages/branding/panocota_logo.png
 - gh-pages/published/tours.json
 - gh-pages/published/tours/<tour_name>/...
 
@@ -229,5 +225,5 @@ GNU GPL v3.0. See LICENSE.
 
 ## Contributors
 
-- Aaron Neill
+- Aaron J Neill
 - GitHub Copilot

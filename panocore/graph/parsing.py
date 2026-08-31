@@ -3,9 +3,24 @@
 from __future__ import annotations
 
 import csv
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+def parse_finite_float(text: str) -> float | None:
+    """Parse text as a finite float; return None for empty/nan/inf values."""
+    value = str(text or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
 
 
 def derive_y_axis_label(y_col: str, y_label: str | None, y_unit: str | None) -> str:
@@ -102,10 +117,8 @@ def extract_series(
     x_raw: list = []
     y_values: list[float] = []
     for idx, row in enumerate(rows):
-        y_text = str(row.get(y_col, "")).strip()
-        try:
-            y_val = float(y_text)
-        except ValueError:
+        y_val = parse_finite_float(row.get(y_col, ""))
+        if y_val is None:
             continue
 
         if x_col:
@@ -135,11 +148,11 @@ def extract_series(
     x_num: list[float] = []
     num_ok = True
     for value in x_raw:
-        try:
-            x_num.append(float(value))
-        except ValueError:
+        parsed = parse_finite_float(value)
+        if parsed is None:
             num_ok = False
             break
+        x_num.append(parsed)
     if num_ok:
         return x_num, y_values, x_col, False
 
@@ -170,12 +183,11 @@ def extract_multi_series(
         parsed_values: list[float] = []
         row_valid = True
         for y_col in y_cols:
-            y_text = str(row.get(y_col, "")).strip()
-            try:
-                parsed_values.append(float(y_text))
-            except ValueError:
+            y_val = parse_finite_float(row.get(y_col, ""))
+            if y_val is None:
                 row_valid = False
                 break
+            parsed_values.append(y_val)
 
         if not row_valid:
             continue
@@ -210,12 +222,119 @@ def extract_multi_series(
     x_num: list[float] = []
     num_ok = True
     for value in x_raw:
-        try:
-            x_num.append(float(value))
-        except ValueError:
+        parsed = parse_finite_float(value)
+        if parsed is None:
             num_ok = False
             break
+        x_num.append(parsed)
     if num_ok:
         return x_num, y_series, x_col, False
 
     return [float(i) for i in range(kept_rows)], y_series, x_col, False
+
+
+def extract_multi_series_with_x_cols(
+    fields: list[str],
+    rows: list[dict],
+    x_col: str,
+    y_cols: list[str],
+    x_cols: list[str],
+) -> tuple[list[list], list[list[float]], bool]:
+    """Extract per-subplot x arrays and y series, each subplot using its own x column.
+
+    Falls back to the shared ``x_col`` (or row index) when a subplot has no
+    dedicated x column. Returns (x_series, y_series, x_is_datetime) where
+    x_series[i] is the x array for subplot i.
+    """
+    if not y_cols:
+        raise ValueError("At least one y column is required.")
+
+    for y_col in y_cols:
+        if y_col not in fields:
+            raise ValueError(f"Column '{y_col}' not found in CSV.")
+    if x_col and x_col not in fields:
+        raise ValueError(f"Column '{x_col}' not found in CSV.")
+    for x_candidate in x_cols:
+        if x_candidate and x_candidate not in fields:
+            raise ValueError(f"Column '{x_candidate}' not found in CSV.")
+
+    effective_x_cols = [
+        (x_cols[idx] if idx < len(x_cols) else "").strip() or x_col
+        for idx in range(len(y_cols))
+    ]
+
+    # Parse each series independently so datasets with different row counts
+    # (or gaps) do not truncate one another: a row is kept for a series when
+    # that series' y value is numeric, paired with the x value from the same row.
+    x_raw_series: list[list] = [[] for _ in y_cols]
+    y_series = [[] for _ in y_cols]
+    for series_idx, y_col in enumerate(y_cols):
+        x_candidate = effective_x_cols[series_idx]
+        kept = 0
+        for row in rows:
+            y_val = parse_finite_float(row.get(y_col, ""))
+            if y_val is None:
+                continue
+            y_series[series_idx].append(y_val)
+            if x_candidate:
+                x_text = str(row.get(x_candidate, "")).strip()
+                x_raw_series[series_idx].append(x_text if x_text else kept)
+            else:
+                x_raw_series[series_idx].append(kept)
+            kept += 1
+
+    if not any(y_series):
+        raise ValueError("No numeric data found across selected y columns after parsing.")
+
+    x_series: list[list] = []
+    for series_idx, x_raw in enumerate(x_raw_series):
+        if not effective_x_cols[series_idx]:
+            x_series.append([float(i) for i in range(len(x_raw))])
+            continue
+
+        x_dt: list[datetime] = []
+        dt_ok = True
+        for value in x_raw:
+            try:
+                x_dt.append(parse_datetime_value(str(value)))
+            except ValueError:
+                dt_ok = False
+                break
+        if dt_ok:
+            x_series.append(x_dt)
+            continue
+
+        x_num: list[float] = []
+        num_ok = True
+        for value in x_raw:
+            parsed = parse_finite_float(value)
+            if parsed is None:
+                num_ok = False
+                break
+            x_num.append(parsed)
+        if num_ok:
+            x_series.append(x_num)
+            continue
+
+        x_series.append([float(i) for i in range(len(x_raw))])
+
+    # Datetime axis mode when any series carries datetime x values.
+    x_is_datetime = any(
+        series and isinstance(series[0], datetime) for series in x_series
+    )
+
+    # Guard against an incompatible mix: a subplot using auto-index (no x
+    # column) alongside a subplot using a datetime x column. Their scales
+    # (row numbers vs. date numbers) differ by orders of magnitude, so the
+    # shared axis would squash one series into an invisible sliver.
+    if x_is_datetime:
+        for series_idx, series in enumerate(x_series):
+            if not effective_x_cols[series_idx] and series:
+                raise ValueError(
+                    "A subplot uses the auto index X while another subplot uses a "
+                    "datetime X column. Set the shared X Column to a real timestamp "
+                    "column (or give every subplot its own X Column) so all subplots "
+                    "share a comparable axis."
+                )
+
+    return x_series, y_series, x_is_datetime

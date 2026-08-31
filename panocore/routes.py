@@ -493,6 +493,9 @@ def register_routes(app: Flask) -> None:
         subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
         subplot_colors = [value.strip().lower() for value in request.args.getlist("color") if value is not None]
         inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
+        # Preserve empty entries so per-subplot x columns stay positionally aligned.
+        x_cols = [value.strip() for value in request.args.getlist("xCol")]
+        share_y = [value.strip() for value in request.args.getlist("shareY")]
         animation_speed_raw = (request.args.get("animationSpeed") or "0.1").strip()
         max_points_raw = (request.args.get("maxPoints") or "").strip()
         renderer = (request.args.get("renderer") or "auto").strip().lower()
@@ -522,9 +525,9 @@ def register_routes(app: Flask) -> None:
             try:
                 subplot_count = int(subplots_raw)
             except ValueError:
-                return jsonify({"error": "subplots must be an integer between 1 and 3."}), 400
-            if subplot_count < 1 or subplot_count > 3:
-                return jsonify({"error": "subplots must be between 1 and 3."}), 400
+                return jsonify({"error": "subplots must be an integer between 1 and 8."}), 400
+            if subplot_count < 1 or subplot_count > 8:
+                return jsonify({"error": "subplots must be between 1 and 8."}), 400
             if len(y_cols) != subplot_count:
                 return jsonify({"error": "Number of y columns must match subplot count."}), 400
             if subplot_types and len(subplot_types) != subplot_count:
@@ -535,6 +538,10 @@ def register_routes(app: Flask) -> None:
                 return jsonify({"error": "Number of invertBar values must match subplot count."}), 400
             if y_axis_labels and len(y_axis_labels) != subplot_count:
                 return jsonify({"error": "Number of yAxisLabel values must match subplot count."}), 400
+            if x_cols and len(x_cols) != subplot_count:
+                return jsonify({"error": "Number of xCol values must match subplot count."}), 400
+            if share_y and len(share_y) != subplot_count:
+                return jsonify({"error": "Number of shareY values must match subplot count."}), 400
 
         try:
             graph_result = generate_graph_asset_with_info(
@@ -553,6 +560,8 @@ def register_routes(app: Flask) -> None:
                 size=size,
                 tour_name=graph_tour_name,
                 max_points=max_points,
+                x_cols=x_cols or None,
+                share_y=share_y or None,
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
@@ -593,6 +602,8 @@ def register_routes(app: Flask) -> None:
         subplot_types = [value.strip().lower() for value in request.args.getlist("plotType") if value is not None]
         subplot_colors = [value.strip().lower() for value in request.args.getlist("color") if value is not None]
         inverted_bars = [value.strip().lower() for value in request.args.getlist("invertBar") if value is not None]
+        x_cols = [value.strip() for value in request.args.getlist("xCol") if value and value.strip()]
+        share_y = [value.strip() for value in request.args.getlist("shareY")]
         animation_speed_raw = (request.args.get("animationSpeed") or "0.1").strip()
         max_points_raw = (request.args.get("maxPoints") or "").strip()
         renderer = (request.args.get("renderer") or "auto").strip().lower()
@@ -622,9 +633,9 @@ def register_routes(app: Flask) -> None:
             try:
                 subplot_count = int(subplots_raw)
             except ValueError:
-                return jsonify({"error": "subplots must be an integer between 1 and 3."}), 400
-            if subplot_count < 1 or subplot_count > 3:
-                return jsonify({"error": "subplots must be between 1 and 3."}), 400
+                return jsonify({"error": "subplots must be an integer between 1 and 8."}), 400
+            if subplot_count < 1 or subplot_count > 8:
+                return jsonify({"error": "subplots must be between 1 and 8."}), 400
             if len(y_cols) != subplot_count:
                 return jsonify({"error": "Number of y columns must match subplot count."}), 400
             if subplot_types and len(subplot_types) != subplot_count:
@@ -635,6 +646,10 @@ def register_routes(app: Flask) -> None:
                 return jsonify({"error": "Number of invertBar values must match subplot count."}), 400
             if y_axis_labels and len(y_axis_labels) != subplot_count:
                 return jsonify({"error": "Number of yAxisLabel values must match subplot count."}), 400
+            if x_cols and len(x_cols) != subplot_count:
+                return jsonify({"error": "Number of xCol values must match subplot count."}), 400
+            if share_y and len(share_y) != subplot_count:
+                return jsonify({"error": "Number of shareY values must match subplot count."}), 400
 
         try:
             graph_result = generate_graph_asset_with_info(
@@ -653,6 +668,8 @@ def register_routes(app: Flask) -> None:
                 size=size,
                 tour_name=tour_name,
                 max_points=max_points,
+                x_cols=x_cols or None,
+                share_y=share_y or None,
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400

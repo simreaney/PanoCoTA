@@ -124,7 +124,8 @@ function createHotspotDom(hotSpotDiv, args) {
     kind === "graph" ||
     kind === "image" ||
     kind === "text" ||
-    kind === "textLink"
+    kind === "textLink" ||
+    kind === "textPanel"
   ) {
     const prompt = document.createElement("div");
     prompt.className = `prompt-card prompt-card--${kind}`;
@@ -139,7 +140,7 @@ function createHotspotDom(hotSpotDiv, args) {
       prompt.classList.remove("is-visible");
     };
     promptText.textContent =
-      (kind === "text" || kind === "textLink" ? args.prompt || args.text : args.text || args.prompt) ||
+      (kind === "text" || kind === "textLink" || kind === "textPanel" ? args.prompt || args.text : args.text || args.prompt) ||
       (kind === "graph"
         ? "Graphed data"
         : kind === "image"
@@ -167,8 +168,8 @@ function createHotspotDom(hotSpotDiv, args) {
         ? args.graph.yColumns.filter((value) => Boolean(String(value || "").trim()))
         : [args.graph.y].filter((value) => Boolean(String(value || "").trim()));
       const subplotCountHint = Number.isFinite(parsedSubplots)
-        ? clamp(parsedSubplots, 1, 3)
-        : clamp(yColumnsHint.length || 1, 1, 3);
+        ? clamp(parsedSubplots, 1, 8)
+        : clamp(yColumnsHint.length || 1, 1, 8);
       const cardWidth = 700;
       prompt.style.setProperty("--graph-card-width", `${cardWidth}px`);
       const graphContainer = document.createElement("div");
@@ -214,6 +215,12 @@ function createHotspotDom(hotSpotDiv, args) {
         const yAxisLabels = Array.isArray(args.graph.yAxisLabels)
           ? args.graph.yAxisLabels.map((value) => String(value ?? "").trim())
           : [];
+        const xColumns = Array.isArray(args.graph.xColumns)
+          ? args.graph.xColumns.map((value) => String(value ?? "").trim())
+          : [];
+        const shareY = Array.isArray(args.graph.shareY)
+          ? args.graph.shareY.map((value) => Number(value) || 0)
+          : [];
 
         const query = new URLSearchParams({
           name: activeTourName,
@@ -222,16 +229,22 @@ function createHotspotDom(hotSpotDiv, args) {
         });
 
         const subplots = Number.parseInt(args.graph.subplots, 10);
-        const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 3) : clamp(yColumns.length || 1, 1, 3);
+        const subplotCount = Number.isFinite(subplots) ? clamp(subplots, 1, 8) : clamp(yColumns.length || 1, 1, 8);
         query.set("subplots", String(subplotCount));
         yColumns.slice(0, subplotCount).forEach((columnName) => {
           query.append("y", columnName);
         });
+        const perSubplotX = xColumns.length > 0;
         for (let idx = 0; idx < subplotCount; idx += 1) {
           query.append("plotType", subplotTypes[idx] || "line");
           query.append("color", subplotColors[idx] || SUBPLOT_COLOR_OPTIONS[idx % SUBPLOT_COLOR_OPTIONS.length]);
           query.append("invertBar", invertedBars[idx] ? "true" : "false");
           query.append("yAxisLabel", yAxisLabels[idx] || "");
+          if (perSubplotX) {
+            query.append("xCol", xColumns[idx] || "");
+          }
+          // Always append (even empty) so shareY values stay positionally aligned.
+          query.append("shareY", String(shareY[idx] || 0));
         }
         if (args.graph.x) {
           query.set("x", args.graph.x);
@@ -329,6 +342,12 @@ function createHotspotDom(hotSpotDiv, args) {
       wrap.addEventListener("mouseleave", () => {
         hidePromptCard();
       });
+    } else if (kind === "textPanel") {
+      // Always-visible floating panel (no hover required).
+      showPromptCard();
+      wrap.addEventListener("mouseenter", () => {
+        positionPromptCard(wrap, prompt);
+      });
     } else {
       wrap.addEventListener("mouseenter", () => {
         showPromptCard();
@@ -338,7 +357,7 @@ function createHotspotDom(hotSpotDiv, args) {
       });
     }
 
-    if (isTouchLikeInteraction() && kind !== "scene") {
+    if (isTouchLikeInteraction() && kind !== "scene" && kind !== "textPanel") {
       wrap.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -372,7 +391,7 @@ function toPannellumHotspot(spot) {
     },
   };
 
-  if (spot.kind === "graph" || spot.kind === "image" || spot.kind === "text" || spot.kind === "textLink") {
+  if (spot.kind === "graph" || spot.kind === "image" || spot.kind === "text" || spot.kind === "textLink" || spot.kind === "textPanel") {
     return {
       ...common,
       type: "info",
@@ -384,7 +403,9 @@ function toPannellumHotspot(spot) {
             ? "Image"
             : spot.kind === "textLink"
               ? "Open link"
-              : "Free text"),
+              : spot.kind === "textPanel"
+                ? "Text panel"
+                : "Free text"),
     };
   }
 
@@ -580,10 +601,52 @@ function setupEvents() {
   el.exitTour.addEventListener("click", exitTour);
 }
 
+function fitLandingLines() {
+  // Grow each .landing-fitline until it would wrap, then step back one size.
+  document.querySelectorAll(".landing-fitline").forEach((line) => {
+    const maxWidth = line.parentElement ? line.parentElement.clientWidth : line.clientWidth;
+    if (!maxWidth) {
+      return;
+    }
+    let size = 14;
+    line.style.fontSize = `${size}px`;
+    while (size < 60 && line.scrollWidth <= maxWidth) {
+      size += 1;
+      line.style.fontSize = `${size}px`;
+    }
+    line.style.fontSize = `${size - 1}px`;
+  });
+}
+
+function refitLandingLines() {
+  // Re-fit on the next frame so the flex layout (including the loaded logo)
+  // has settled before we measure the text column width.
+  requestAnimationFrame(fitLandingLines);
+}
+
+function bindLandingRefit() {
+  // The text column width depends on the brand logo, which loads asynchronously.
+  // Re-fit once the logo (and the rest of the page) has loaded so the lines are
+  // sized against the final layout instead of the pre-logo width.
+  document.querySelectorAll(".brand-logo").forEach((img) => {
+    if (img.complete) {
+      refitLandingLines();
+    } else {
+      img.addEventListener("load", refitLandingLines);
+      img.addEventListener("error", refitLandingLines);
+    }
+  });
+  if (document.readyState !== "complete") {
+    window.addEventListener("load", refitLandingLines);
+  }
+}
+
 async function boot() {
   try {
     const tours = await refreshTourList();
     setupEvents();
+    fitLandingLines();
+    bindLandingRefit();
     if (tours.length > 0) {
       setStatus("Select a tour and choose View Tour.");
     }
@@ -592,4 +655,5 @@ async function boot() {
   }
 }
 
+window.addEventListener("resize", fitLandingLines);
 boot();

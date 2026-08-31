@@ -29,19 +29,28 @@ except Exception:
 
 
 def _coerce_x_numeric(x_values: list) -> list[float]:
-    """Convert x values to numeric positions for axis bounds."""
+    """Convert x values to numeric positions for axis bounds.
+
+    Handles mixed lists (e.g. datetimes from one series and floats from
+    another) by coercing each value individually.
+    """
     if not x_values:
         return []
 
-    try:
-        return [float(value.timestamp()) for value in x_values]
-    except Exception:
-        pass
-
-    try:
-        return [float(value) for value in x_values]
-    except Exception:
-        return [float(i) for i in range(len(x_values))]
+    coerced: list[float] = []
+    for value in x_values:
+        try:
+            if isinstance(value, datetime):
+                numeric = float(value.timestamp())
+            else:
+                numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = float("nan")
+        if not math.isfinite(numeric):
+            # Skip non-finite values so axis bounds stay finite.
+            continue
+        coerced.append(numeric)
+    return coerced
 
 
 def _compute_bar_widths(x_values: list) -> list[float]:
@@ -131,13 +140,19 @@ def _enforce_min_visible_bar_widths(
     return [min(max(width, min_width_data), max_width_data) for width in widths]
 
 
+def _finite_values(values: list) -> list[float]:
+    """Filter out nan/inf so axis limits stay finite."""
+    return [value for value in values if isinstance(value, (int, float)) and math.isfinite(value)]
+
+
 def _compute_y_limits(y_values: list[float]) -> tuple[float, float]:
     """Compute y-axis limits with +/-10% padding and a zero floor for non-negative data."""
-    if not y_values:
+    finite = _finite_values(y_values)
+    if not finite:
         return (-1.0, 1.0)
 
-    min_value = min(y_values)
-    max_value = max(y_values)
+    min_value = min(finite)
+    max_value = max(finite)
 
     upper = max_value + (abs(max_value) * 0.1)
     if min_value < 0:
@@ -150,6 +165,20 @@ def _compute_y_limits(y_values: list[float]) -> tuple[float, float]:
         lower -= delta
         upper += delta
     return (lower, upper)
+
+
+def _normalize_x_series(x_values: list, subplot_count: int) -> list[list]:
+    """Return per-subplot x arrays. Accepts a flat shared list or a list of lists."""
+    if subplot_count == 0:
+        return []
+    # Detect list-of-lists (per-subplot x) vs flat list (shared x).
+    if x_values and isinstance(x_values[0], (list, tuple)):
+        per_subplot = [list(series) for series in x_values]
+        if len(per_subplot) != subplot_count:
+            raise ValueError("Number of per-subplot x series must match subplot count.")
+        return per_subplot
+    # Flat shared x: replicate for every subplot.
+    return [list(x_values) for _ in range(subplot_count)]
 
 
 def generate_with_matplotlib(
@@ -166,14 +195,21 @@ def generate_with_matplotlib(
     max_animation_frames: int | None = 180,
     animation_loop_count: int = 0,
     animation_time_budget_seconds: float | None = None,
+    share_y: list[int] | None = None,
 ) -> None:
-    """Render static PNG or animated GIF graphs with one to three stacked subplots."""
+    """Render static PNG or animated GIF graphs with one to eight stacked subplots.
+
+    ``x_values`` may be a flat list (shared x-axis for all subplots) or a list
+    of lists (one x series per subplot). When per-subplot x series are given,
+    the overall x-axis range is the union of all series so subplots stay
+    aligned on a common time/numeric axis.
+    """
     if not y_series:
         raise ValueError("At least one y series is required.")
 
     subplot_count = len(y_series)
-    if subplot_count > 3:
-        raise ValueError("Matplotlib renderer supports up to three subplots.")
+    if subplot_count > 8:
+        raise ValueError("Matplotlib renderer supports up to eight subplots.")
 
     if len(y_labels) != subplot_count:
         raise ValueError("Each y series must provide a matching y-axis label.")
@@ -184,9 +220,35 @@ def generate_with_matplotlib(
     if len(inverted_bars) != subplot_count:
         raise ValueError("Each subplot must provide an inverted bar flag.")
 
-    for values in y_series:
-        if len(values) != len(x_values):
-            raise ValueError("x and y series lengths must match for subplot rendering.")
+    per_subplot_x = _normalize_x_series(x_values, subplot_count)
+    for idx, x_arr in enumerate(per_subplot_x):
+        if len(x_arr) != len(y_series[idx]):
+            raise ValueError(f"x and y series lengths must match for subplot {idx + 1}.")
+
+    # Normalize per-subplot "share Y range with subplot N" references.
+    # Sharing is symmetric: both subplots in a pair use the union of their data.
+    share_y_partner: list[int | None] = [None] * subplot_count
+    for idx, target in enumerate(share_y or []):
+        if target in (None, "", -1, 0):
+            continue
+        try:
+            target_idx = int(target) - 1
+        except (TypeError, ValueError):
+            raise ValueError(f"shareY value for subplot {idx + 1} must be a subplot number.")
+        if target_idx < 0 or target_idx >= subplot_count or target_idx == idx:
+            raise ValueError(
+                f"shareY for subplot {idx + 1} must reference another subplot (1-{subplot_count})."
+            )
+        share_y_partner[idx] = target_idx
+        share_y_partner[target_idx] = idx
+
+    def compute_y_limits_for(idx: int) -> tuple[float, float]:
+        """Y limits for a subplot, widened to include its share-Y partner's data."""
+        values = _finite_values(y_series[idx])
+        partner = share_y_partner[idx]
+        if partner is not None:
+            values = values + _finite_values(y_series[partner])
+        return _compute_y_limits(values)
 
     size_to_base = {
         "s": (7.0, 2.8),
@@ -194,6 +256,9 @@ def generate_with_matplotlib(
         "l": (12.8, 3.8),
     }
     fig_width, per_subplot_height = size_to_base.get(size, size_to_base["m"])
+    # Keep tall multi-subplot figures at a manageable overall height.
+    if subplot_count > 4:
+        per_subplot_height *= 0.7
     fig_height = max(2.8, per_subplot_height * subplot_count)
     render_dpi = 120
     fig, axes = plt.subplots(
@@ -215,19 +280,38 @@ def generate_with_matplotlib(
         if subplot_type not in {"line", "scatter", "bar"}:
             raise ValueError("subplot types must be one of: line, scatter, bar")
 
-    x_is_datetime = bool(x_values) and isinstance(x_values[0], datetime)
+    # Detect datetime mode when any per-subplot x series carries datetimes.
+    x_is_datetime = any(
+        series and isinstance(series[0], datetime) for series in per_subplot_x
+    )
     datetime_rotation = None
-    plot_x_values = x_values
+    # Per-subplot plot x arrays (date numbers for datetimes, raw values otherwise).
+    plot_x_series: list[list] = [list(series) for series in per_subplot_x]
     if x_is_datetime and mdates is not None:
-        span_seconds = (max(x_values) - min(x_values)).total_seconds() if len(x_values) >= 2 else 0
+        all_datetimes = [
+            value
+            for series in per_subplot_x
+            for value in series
+            if isinstance(value, datetime)
+        ]
+        span_seconds = (max(all_datetimes) - min(all_datetimes)).total_seconds() if len(all_datetimes) >= 2 else 0
         datetime_rotation = 50 if span_seconds < 86400 else 0
-        # Keep real time spacing on the x-axis by converting datetimes to Matplotlib date numbers.
-        plot_x_values = [float(value) for value in mdates.date2num(x_values)]
+        # Keep real time spacing on the x-axis by converting datetimes to Matplotlib
+        # date numbers; numeric series pass through unchanged.
+        plot_x_series = [
+            [float(value) for value in mdates.date2num(series)]
+            if series and isinstance(series[0], datetime)
+            else [float(value) for value in series]
+            for series in per_subplot_x
+        ]
         locator = mdates.AutoDateLocator()
         formatter = mdates.ConciseDateFormatter(locator)
         for axis in axes:
             axis.xaxis.set_major_locator(locator)
             axis.xaxis.set_major_formatter(formatter)
+    # Shared x-axis range is the union of all per-subplot x values so subplots
+    # stay aligned even when each uses its own timestamp column.
+    all_plot_x = [value for series in plot_x_series for value in series]
 
     def apply_datetime_tick_rotation() -> None:
         """Rotate dense datetime labels without using autofmt_xdate recursion-prone path."""
@@ -245,45 +329,65 @@ def generate_with_matplotlib(
             fig.subplots_adjust(left=0.1, right=0.98, top=0.96, bottom=0.14, hspace=0.28)
             if x_is_datetime and mdates is not None and datetime_rotation is not None:
                 fig.subplots_adjust(bottom=0.28 if datetime_rotation else 0.16)
+        # Right-align y-axis labels across stacked subplots so they line up
+        # vertically regardless of label length.
+        try:
+            fig.align_ylabels()
+        except Exception:
+            pass
 
-    bar_widths = _compute_bar_widths(plot_x_values)
-    bar_widths = _enforce_min_visible_bar_widths(plot_x_values, bar_widths, fig_width, render_dpi)
+    # Per-subplot bar widths (each subplot uses its own x spacing).
+    bar_widths_per_subplot: list[list[float]] = []
+    for idx in range(subplot_count):
+        widths = _compute_bar_widths(plot_x_series[idx])
+        widths = _enforce_min_visible_bar_widths(all_plot_x, widths, fig_width, render_dpi)
+        bar_widths_per_subplot.append(widths)
 
     def apply_x_limits() -> None:
-        """Apply x-axis limits with breathing room for datetime-series edges."""
-        x_numeric = _coerce_x_numeric(plot_x_values)
+        """Apply shared x-axis limits (union of all subplots) with edge padding."""
+        x_numeric = _coerce_x_numeric(all_plot_x)
+        if not x_numeric:
+            return
         x_min, x_max = min(x_numeric), max(x_numeric)
         if math.isclose(x_min, x_max):
             x_min -= 1
             x_max += 1
-        elif x_is_datetime and mdates is not None and x_values:
+        elif x_is_datetime and mdates is not None:
             # Date numbers use days as units; +/- 1.0 adds one full day padding.
             x_min -= 1.0
             x_max += 1.0
         for axis in axes:
             axis.set_xlim(x_min, x_max)
 
-    def build_frame_end_indexes(frame_cap: int | None) -> list[int]:
-        if frame_cap is None or frame_cap <= 0:
-            frame_cap = len(plot_x_values)
-        frame_cap = max(1, min(int(frame_cap), len(plot_x_values)))
-        if frame_cap == 1:
-            frame_index_set = {len(plot_x_values) - 1}
-        else:
-            step = max(1, len(plot_x_values) // frame_cap)
-            frame_index_set = set(range(0, len(plot_x_values), step))
-            frame_index_set.add(len(plot_x_values) - 1)
+    def build_frame_end_fractions(frame_cap: int | None) -> list[float]:
+        """Build animation frame endpoints as 0..1 progress fractions.
 
-        # Keep extrema frames so animated charts always show min/max values used for axis limits.
+        Fractions keep subplots with different point counts in sync: each
+        subplot reveals points up to ``fraction * len(series)``.
+        """
+        max_len = max((len(series) for series in y_series), default=0)
+        if max_len == 0:
+            return [1.0]
+        if frame_cap is None or frame_cap <= 0:
+            frame_cap = max_len
+        frame_cap = max(1, min(int(frame_cap), max_len))
+        if frame_cap == 1:
+            fraction_set = {1.0}
+        else:
+            step = max(1, max_len // frame_cap)
+            fraction_set = {min(1.0, (idx + 1) / max_len) for idx in range(0, max_len, step)}
+            fraction_set.add(1.0)
+
+        # Keep extrema frames so animated charts always show min/max values.
         for series in y_series:
             if not series:
                 continue
             max_index = max(range(len(series)), key=series.__getitem__)
             min_index = min(range(len(series)), key=series.__getitem__)
-            frame_index_set.add(max_index)
-            frame_index_set.add(min_index)
+            fraction_set.add((max_index + 1) / len(series))
+            fraction_set.add((min_index + 1) / len(series))
 
-        return sorted(frame_index_set)
+        return sorted(fraction_set)
 
     def reset_artists() -> None:
         for idx, artist, artist_type in line_like:
@@ -299,20 +403,19 @@ def generate_with_matplotlib(
             for patch in bars.patches:
                 patch.set_height(0)
 
-    frame_end_indexes = build_frame_end_indexes(max_animation_frames)
+    frame_end_fractions = build_frame_end_fractions(max_animation_frames)
 
     if not animate:
         for idx, axis in enumerate(axes):
             color = subplot_colors[idx]
             if subplot_types[idx] == "line":
-                axis.plot(plot_x_values, y_series[idx], color=color, linewidth=2.2)
+                axis.plot(plot_x_series[idx], y_series[idx], color=color, linewidth=2.2)
             elif subplot_types[idx] == "scatter":
-                axis.scatter(plot_x_values, y_series[idx], facecolors="none", edgecolors=color, linewidths=1.5, s=30)
+                axis.scatter(plot_x_series[idx], y_series[idx], facecolors="none", edgecolors=color, linewidths=1.5, s=30)
             else:
-                axis.bar(plot_x_values, y_series[idx], color=color, width=bar_widths)
+                axis.bar(plot_x_series[idx], y_series[idx], color=color, width=bar_widths_per_subplot[idx])
 
-            y_values = y_series[idx]
-            y_min, y_max = _compute_y_limits(y_values)
+            y_min, y_max = compute_y_limits_for(idx)
             axis.set_ylim(y_min, y_max)
             if inverted_bars[idx]:
                 axis.invert_yaxis()
@@ -342,28 +445,30 @@ def generate_with_matplotlib(
             artists.append(scatter)
             bar_containers.append(None)
         else:
-            bars = axis.bar(plot_x_values, [0.0] * len(plot_x_values), color=color, width=bar_widths)
+            bars = axis.bar(plot_x_series[idx], [0.0] * len(plot_x_series[idx]), color=color, width=bar_widths_per_subplot[idx])
             bar_containers.append(bars)
             artists.extend(list(bars.patches))
 
     apply_x_limits()
 
     for idx, axis in enumerate(axes):
-        y_values = y_series[idx]
-        y_min, y_max = _compute_y_limits(y_values)
+        y_min, y_max = compute_y_limits_for(idx)
         axis.set_ylim(y_min, y_max)
         if inverted_bars[idx]:
             axis.invert_yaxis()
 
     revealed_bar_indexes = [-1 for _ in bar_containers]
 
-    def update(frame_idx: int, current_frame_end_indexes: list[int]) -> None:
-        """Append full-series data points up to the frame's endpoint index."""
-        end_index = current_frame_end_indexes[frame_idx]
-        upto = end_index + 1
+    def update(fraction: float) -> None:
+        """Reveal each subplot's data up to the frame's progress fraction.
 
+        Using a 0..1 fraction keeps subplots with different point counts in
+        sync on the shared x-axis.
+        """
         for idx, artist, artist_type in line_like:
-            x_slice = plot_x_values[:upto]
+            series_len = len(y_series[idx])
+            upto = max(1, min(series_len, int(round(fraction * series_len))))
+            x_slice = plot_x_series[idx][:upto]
             y_slice = y_series[idx][:upto]
             if artist_type == "line":
                 artist.set_data(x_slice, y_slice)
@@ -374,6 +479,8 @@ def generate_with_matplotlib(
             if bars is None:
                 continue
             y_values = y_series[idx]
+            series_len = len(y_values)
+            end_index = max(0, min(series_len - 1, int(round(fraction * series_len)) - 1))
             start_index = revealed_bar_indexes[idx] + 1
             if start_index > end_index:
                 start_index = 0
@@ -386,12 +493,11 @@ def generate_with_matplotlib(
 
     reset_artists()
 
-    if animation_time_budget_seconds is not None and animation_time_budget_seconds > 0 and len(frame_end_indexes) > 1:
-        probe_count = min(3, len(frame_end_indexes))
-        probe_indexes = frame_end_indexes[-probe_count:]
+    if animation_time_budget_seconds is not None and animation_time_budget_seconds > 0 and len(frame_end_fractions) > 1:
+        probe_count = min(3, len(frame_end_fractions))
         probe_start = perf_counter()
-        for probe_frame_idx in range(len(frame_end_indexes) - probe_count, len(frame_end_indexes)):
-            update(probe_frame_idx, frame_end_indexes)
+        for probe_frame_idx in range(len(frame_end_fractions) - probe_count, len(frame_end_fractions)):
+            update(frame_end_fractions[probe_frame_idx])
             fig.canvas.draw()
         probe_elapsed = perf_counter() - probe_start
         average_frame_seconds = probe_elapsed / probe_count if probe_count else 0.0
@@ -400,14 +506,14 @@ def generate_with_matplotlib(
         if average_frame_seconds > 0:
             budget_adjusted_cap = int(animation_time_budget_seconds / (average_frame_seconds * 1.2))
             budget_adjusted_cap = max(probe_count, budget_adjusted_cap)
-            if budget_adjusted_cap < len(frame_end_indexes):
-                frame_end_indexes = build_frame_end_indexes(budget_adjusted_cap)
+            if budget_adjusted_cap < len(frame_end_fractions):
+                frame_end_fractions = build_frame_end_fractions(budget_adjusted_cap)
                 reset_artists()
 
     if x_is_datetime and mdates is not None and datetime_rotation is not None:
         apply_datetime_tick_rotation()
     apply_layout()
-    frame_count = max(len(frame_end_indexes), 1)
+    frame_count = max(len(frame_end_fractions), 1)
     seconds_per_frame = 0.1
     target_loop_seconds = frame_count * seconds_per_frame
     if target_loop_seconds < 5.0:
@@ -416,8 +522,8 @@ def generate_with_matplotlib(
         seconds_per_frame = 10.0 / frame_count
     frame_duration_ms = max(20, int(seconds_per_frame * 1000))
     frames: list[Image.Image] = []
-    for frame_idx in range(len(frame_end_indexes)):
-        update(frame_idx, frame_end_indexes)
+    for fraction in frame_end_fractions:
+        update(fraction)
         fig.canvas.draw()
         width, height = fig.canvas.get_width_height()
         buffer = fig.canvas.buffer_rgba()

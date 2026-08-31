@@ -194,13 +194,35 @@ h1 {
 
 .hotspot-mode-buttons {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 10px;
 }
 
 .hotspot-add-form.is-hidden {
   display: none;
+}
+
+.hotspot-edit-bar {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(79, 195, 247, 0.5);
+  border-radius: 10px;
+  background: rgba(79, 195, 247, 0.08);
+}
+
+.hotspot-edit-bar.is-hidden {
+  display: none;
+}
+
+.hotspot-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.hotspot-edit-actions button {
+  flex: 1 1 auto;
 }
 
 #scene-coverage-partial.is-hidden {
@@ -220,7 +242,8 @@ label {
   margin-top: 6px;
 }
 
-.subplot-y-label {
+.subplot-y-label,
+.subplot-x-label {
   margin-bottom: 0;
 }
 
@@ -234,7 +257,8 @@ label {
 }
 
 .subplot-type-label,
-.subplot-invert-label {
+.subplot-invert-label,
+.subplot-sharey-label {
   margin-bottom: 0;
 }
 
@@ -386,6 +410,13 @@ body.is-deleting-hotspots .pnlm-container * {
   cursor: pointer !important;
 }
 
+body.is-editing-hotspots #viewer,
+body.is-editing-hotspots #viewer *,
+body.is-editing-hotspots .pnlm-container,
+body.is-editing-hotspots .pnlm-container * {
+  cursor: pointer !important;
+}
+
 body.is-dragging-hotspot #viewer,
 body.is-dragging-hotspot #viewer *,
 body.is-dragging-hotspot .pnlm-container,
@@ -416,7 +447,8 @@ body.is-dragging-hotspot .hotspot-wrap--editable {
 }
 
 body.is-moving-hotspots .prompt-card,
-body.is-dragging-hotspot .prompt-card {
+body.is-dragging-hotspot .prompt-card,
+body.is-editing-hotspots .prompt-card {
   opacity: 0 !important;
   pointer-events: none !important;
 }

@@ -84,6 +84,7 @@ def _refresh_static_viewer_shell() -> None:
     viewer_css_src = PROJECT_ROOT / "static" / "viewer.css"
     viewer_js_src = PROJECT_ROOT / "static" / "viewer.js"
     hotspot_css_src = PROJECT_ROOT / "static" / "hotspot-overlays.css"
+    brand_logo_src = PROJECT_ROOT / "static" / "branding" / "panocota_logo.png"
     if not viewer_css_src.exists() or not viewer_js_src.exists() or not hotspot_css_src.exists():
         raise FileNotFoundError("Static viewer CSS/JS assets are missing.")
 
@@ -92,6 +93,7 @@ def _refresh_static_viewer_shell() -> None:
     _copy_required_file(viewer_css_src, PAGES_DIR / "viewer.css", "viewer CSS")
     _copy_required_file(hotspot_css_src, PAGES_DIR / "hotspot-overlays.css", "hotspot overlay CSS")
     _copy_required_file(viewer_js_src, PAGES_DIR / "viewer.js", "viewer JS")
+    _copy_required_file(brand_logo_src, PAGES_DIR / "branding" / "panocota_logo.png", "brand logo")
 
 
 def _resolve_panorama_source(tour_name: str, scene_panorama: str) -> tuple[Path, str]:
@@ -135,6 +137,14 @@ def _build_graph_for_hotspot(tour_name: str, graph_block: dict) -> str:
     if not y_cols:
         raise ValueError("Graph hotspot must define y or yColumns.")
 
+    x_cols = graph_block.get("xColumns")
+    if not isinstance(x_cols, list):
+        x_cols = None
+
+    share_y = graph_block.get("shareY")
+    if not isinstance(share_y, list):
+        share_y = None
+
     graph_filename = generate_graph_asset(
         csv_name=csv_name,
         x_col=str(graph_block.get("x") or "").strip(),
@@ -155,6 +165,8 @@ def _build_graph_for_hotspot(tour_name: str, graph_block: dict) -> str:
         animation_loop_count=3,
         animation_time_budget_seconds=15.0,
         force_regenerate=True,
+        x_cols=x_cols,
+        share_y=share_y,
     )
     return graph_filename
 

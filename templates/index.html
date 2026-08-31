@@ -142,6 +142,7 @@
             <button id="hotspot-mode-add">Add Hotspot</button>
             <button id="hotspot-mode-move">Move Hotspots</button>
             <button id="hotspot-mode-delete">Delete Hotspots</button>
+            <button id="hotspot-mode-edit">Edit Hotspot</button>
           </div>
           <div id="hotspot-add-form" class="hotspot-add-form is-hidden">
             <label>
@@ -151,6 +152,7 @@
                 <option value="graph">Graphed Data</option>
                 <option value="image">Image</option>
                 <option value="text">Free Text</option>
+                <option value="textPanel">Text Panel (always visible)</option>
                 <option value="textLink">Web Link</option>
               </select>
             </label>
@@ -187,7 +189,7 @@
             <button id="upload-csv-button">Upload CSV</button>
             <p id="csv-upload-result" class="micro"></p>
             <label id="graph-x-wrap">
-              X Column (optional)
+              X Column (shared by all subplots, or per-subplot)
               <select id="hotspot-x"></select>
             </label>
             <label id="graph-subplots-wrap">
@@ -196,6 +198,11 @@
                 <option value="1" selected>1</option>
                 <option value="2">2</option>
                 <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
               </select>
             </label>
             <label id="graph-y-wrap">
@@ -223,6 +230,13 @@
             <button id="upload-hotspot-image">Upload Image</button>
             <p id="hotspot-image-result" class="micro"></p>
             <button id="place-hotspot">Place Hotspot In Viewer</button>
+            <div id="hotspot-edit-bar" class="hotspot-edit-bar is-hidden">
+              <p id="hotspot-edit-status" class="micro">Click a hotspot in the viewer to edit it.</p>
+              <div class="hotspot-edit-actions">
+                <button id="save-hotspot-edit">Save Changes</button>
+                <button id="cancel-hotspot-edit">Cancel</button>
+              </div>
+            </div>
           </div>
         </section>
 
