@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PanoCoTA — One-Pager</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bebas+Neue&display=swap"
+    />
+    <style>
+      :root {
+        --bg-a: #f4f8ef;
+        --bg-b: #cfe6df;
+        --panel: #172119;
+        --panel-soft: #223129;
+        --text: #ebf6e8;
+        --accent: #e84855;
+        --accent-soft: #ffd9dd;
+        --scene: #3fbdb5;
+        --image: #f7b538;
+        --textgreen: #7ac74f;
+        --link: #8b5cf6;
+        --panelblue: #4fc3f7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: "Space Grotesk", sans-serif;
+        color: #18241e;
+        background: #e9efe9;
+        display: flex;
+        justify-content: center;
+        padding: 16px;
+      }
+
+      /* A4 sheet: 210mm x 297mm */
+      .sheet {
+        width: 210mm;
+        min-height: 297mm;
+        background: radial-gradient(circle at 15% 8%, #f8ffd9 0%, transparent 38%),
+          linear-gradient(130deg, var(--bg-a), var(--bg-b));
+        padding: 10mm 14mm;
+        display: flex;
+        flex-direction: column;
+        gap: 4mm;
+        page-break-after: avoid;
+      }
+
+      /* ---------- Header ---------- */
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 6mm;
+        background: linear-gradient(160deg, var(--panel), var(--panel-soft));
+        border-radius: 6mm;
+        padding: 5mm 8mm;
+        color: var(--text);
+      }
+
+      .header img.logo {
+        width: 26mm;
+        height: auto;
+        border-radius: 3mm;
+        flex: 0 0 auto;
+      }
+
+      .header h1 {
+        font-family: "Bebas Neue", sans-serif;
+        letter-spacing: 2px;
+        font-size: 30pt;
+        margin: 0;
+        line-height: 1;
+      }
+
+      .header .tagline {
+        margin: 1.5mm 0 0;
+        font-size: 10.5pt;
+        opacity: 0.92;
+      }
+
+      .header .tagline strong {
+        color: var(--accent-soft);
+      }
+
+      .header .credit {
+        margin: 1.5mm 0 0;
+        font-size: 8.5pt;
+        opacity: 0.7;
+      }
+
+      /* ---------- Intro ---------- */
+      .intro {
+        font-size: 11pt;
+        line-height: 1.45;
+        margin: 0;
+      }
+
+      .intro strong {
+        color: var(--accent);
+      }
+
+      /* ---------- Two-column body ---------- */
+      .columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5mm;
+      }
+
+      .card {
+        background: rgba(255, 255, 255, 0.55);
+        border: 1px solid rgba(24, 36, 30, 0.18);
+        border-radius: 4mm;
+        padding: 4mm 5mm;
+      }
+
+      .card h2 {
+        font-family: "Bebas Neue", sans-serif;
+        letter-spacing: 1.5px;
+        font-size: 15pt;
+        margin: 0 0 2.5mm;
+        color: var(--panel);
+      }
+
+      .card ul {
+        margin: 0;
+        padding-left: 4.5mm;
+        font-size: 9.5pt;
+        line-height: 1.4;
+      }
+
+      .card li {
+        margin-bottom: 1.6mm;
+      }
+
+      /* ---------- Hotspot legend ---------- */
+      .legend {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2mm 4mm;
+        margin-top: 2mm;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 2.5mm;
+        font-size: 9.5pt;
+      }
+
+      .swatch {
+        width: 4.5mm;
+        height: 4.5mm;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.95);
+        box-shadow: 0 0 0 1px rgba(24, 36, 30, 0.25);
+        flex: 0 0 auto;
+      }
+
+      .swatch--scene { background: var(--scene); }
+      .swatch--graph { background: var(--accent); }
+      .swatch--image { background: var(--image); }
+      .swatch--text { background: var(--textgreen); }
+      .swatch--link { background: var(--link); }
+      .swatch--panel { background: var(--panelblue); }
+
+      /* ---------- How to use ---------- */
+      .steps {
+        counter-reset: step;
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        font-size: 9.5pt;
+        line-height: 1.4;
+      }
+
+      .steps li {
+        counter-increment: step;
+        margin-bottom: 2mm;
+        padding-left: 8mm;
+        position: relative;
+      }
+
+      .steps li::before {
+        content: counter(step);
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 5.5mm;
+        height: 5.5mm;
+        border-radius: 999px;
+        background: var(--panel);
+        color: var(--text);
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 10pt;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* ---------- Footer: QR + repo ---------- */
+      .footer {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        gap: 6mm;
+        background: linear-gradient(160deg, var(--panel), var(--panel-soft));
+        border-radius: 6mm;
+        padding: 4.5mm 8mm;
+        color: var(--text);
+      }
+
+      .footer img.qr {
+        width: 30mm;
+        height: 30mm;
+        border-radius: 3mm;
+        background: #fff;
+        padding: 2mm;
+        flex: 0 0 auto;
+      }
+
+      .footer .qr-text {
+        font-size: 10pt;
+        line-height: 1.45;
+      }
+
+      .footer .qr-text .big {
+        font-family: "Bebas Neue", sans-serif;
+        letter-spacing: 1.5px;
+        font-size: 16pt;
+        display: block;
+        margin-bottom: 1mm;
+      }
+
+      .footer .qr-text a {
+        color: var(--accent-soft);
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      .footer .qr-text .doi {
+        display: block;
+        margin-top: 1.5mm;
+        font-size: 8.5pt;
+        opacity: 0.75;
+      }
+
+      /* ---------- Print ---------- */
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+
+      @media print {
+        html,
+        body {
+          background: none;
+          padding: 0;
+        }
+
+        .sheet {
+          width: 210mm;
+          min-height: 297mm;
+          padding: 10mm 14mm;
+        }
+
+        .card,
+        .header,
+        .footer {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <header class="header">
+        <img class="logo" src="../static/branding/panocota_logo.png" alt="PanoCoTA logo" />
+        <div>
+          <h1>PanoCoTA</h1>
+          <p class="tagline">
+            <strong>Pano</strong>ramic <strong>Co</strong>ntent and <strong>T</strong>ours for
+            <strong>A</strong>cademia
+          </p>
+          <p class="credit">Conceptualised and vibe-coded by A J Neill (JLU Giessen)</p>
+        </div>
+      </header>
+
+      <p class="intro">
+        PanoCoTA is a free, open-source web app for building <strong>interactive 360° tours</strong>
+        that embed graphed data, 2D images and text directly into panoramic scenes — turning
+        field deployments, monitoring sites and research infrastructure into explorable,
+        shareable stories for scientific communication.
+      </p>
+
+      <div class="columns">
+        <div class="card">
+          <h2>What it does</h2>
+          <ul>
+            <li>Build 360° tours from your own panorama photos (full-sphere or partial coverage).</li>
+            <li>Pin hotspots anywhere in a scene: scene links, animated graphs, images, free text, always-visible text panels, and web links.</li>
+            <li>Plot CSV data as up to 8 stacked subplots (line, scatter, bar) — with per-subplot X columns and shared Y-axes for direct comparison.</li>
+            <li>Save, load, and edit tours in the browser — no installation needed.</li>
+            <li>One-click publish: export a static, hostable tour package to GitHub Pages and share a link.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2>Hotspot types</h2>
+          <div class="legend">
+            <div class="legend-item"><span class="swatch swatch--scene"></span> Scene link — jump between panoramas</div>
+            <div class="legend-item"><span class="swatch swatch--graph"></span> Graph — (animated) CSV data plots</div>
+            <div class="legend-item"><span class="swatch swatch--image"></span> Image — 2D photos with captions</div>
+            <div class="legend-item"><span class="swatch swatch--text"></span> Free text — hover cards</div>
+            <div class="legend-item"><span class="swatch swatch--panel"></span> Text panel — always visible</div>
+            <div class="legend-item"><span class="swatch swatch--link"></span> Web link — external resources</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>How to use it</h2>
+          <ol class="steps">
+            <li>Upload a 360° panorama and create a scene.</li>
+            <li>Add hotspots and click once in the panorama to place them.</li>
+            <li>Save your tour — it can be reloaded and edited any time.</li>
+            <li>Publish to GitHub Pages and share the link with anyone.</li>
+          </ol>
+        </div>
+
+        <div class="card">
+          <h2>Perfect for</h2>
+          <ul>
+            <li>Field campaign and monitoring-site documentation</li>
+            <li>Thesis and project reporting with embedded data</li>
+            <li>Workshops, open days, and public engagement</li>
+            <li>Teaching: students explore real datasets in context</li>
+          </ul>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <img class="qr" src="panocota_qr.png" alt="QR code linking to the PanoCoTA GitHub repository" />
+        <div class="qr-text">
+          <span class="big">Scan to get PanoCoTA</span>
+          Free and open-source (GPL v3). Scan the QR code or visit
+          <a href="https://github.com/a-j-neill/PanoCoTA">github.com/a-j-neill/PanoCoTA</a>
+          to read the guide, clone the app, and start building your own tours.
+          <span class="doi">Cite: doi.org/10.5281/zenodo.21840893</span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
