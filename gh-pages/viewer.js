@@ -344,7 +344,11 @@ function createHotspotDom(hotSpotDiv, args) {
       });
     } else if (kind === "textPanel") {
       // Always-visible floating panel (no hover required).
-      showPromptCard();
+      // Show the card via is-visible only, WITHOUT is-active: is-active also
+      // lifts the hotspot's z-index to 100, which would keep the panel stacked
+      // above every other hotspot's content. Hovering still lifts it normally.
+      positionPromptCard(wrap, prompt);
+      prompt.classList.add("is-visible");
       wrap.addEventListener("mouseenter", () => {
         positionPromptCard(wrap, prompt);
       });
